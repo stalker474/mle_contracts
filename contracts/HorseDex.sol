@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 import "./WalletUser.sol";
 import "../openzeppelin-solidity/contracts/lifecycle/Pausable.sol";
@@ -103,7 +103,7 @@ contract HorseDex is WalletUser, Ownable, Pausable {
         //deposit the right amount of ETH to EtherDelta for this trade
         tradeContract.deposit.value(SafeMath.div(SafeMath.mul(amountGive,amount),amountGet))();
         //buy amountGet quantity of HORSE token using amountGive ETH (token 0x0 = ETH currency) + the sellers order data
-        tradeContract.trade(0x5B0751713b2527d7f002c0c4e2a37e1219610A6B, amountGet, 0x0, amountGive, expires, nonce, user, v, r, s, amount);
+        tradeContract.trade(0x5B0751713b2527d7f002c0c4e2a37e1219610A6B, amountGet, address(0x0), amountGive, expires, nonce, user, v, r, s, amount);
         //withdraw the bought tokens from etherdelta
         tradeContract.withdrawToken(0x5B0751713b2527d7f002c0c4e2a37e1219610A6B, amountGet);
         //send the bought tokens to the pool

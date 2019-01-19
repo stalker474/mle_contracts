@@ -1,4 +1,4 @@
-pragma solidity ^0.4.25;
+pragma solidity ^0.5.2;
 
 import "../openzeppelin-solidity/contracts/lifecycle/Pausable.sol";
 import "../openzeppelin-solidity/contracts/ownership/Ownable.sol";
@@ -26,13 +26,13 @@ contract HorseAuction is Ownable, Pausable {
         @dev Auction bundle containing HORSE
     */
     struct Bundle {
-        uint256 amount;         //amount of HORSE in this bundle
-        uint256 expires;        //date at which this bundle can no longer be bet on
-        uint256 currentBid;     //current bid value
-        uint256 increment;      //minimum increment value for outbiding
-        address seller;         //address of the seller
-        address highestBidder;  //address of the current highest bidder
-        address token;          //address of the token contract
+        uint256 amount;                 //amount of HORSE in this bundle
+        uint256 expires;                //date at which this bundle can no longer be bet on
+        uint256 currentBid;             //current bid value
+        uint256 increment;              //minimum increment value for outbiding
+        address payable seller;         //address of the seller
+        address payable highestBidder;  //address of the current highest bidder
+        address token;                  //address of the token contract
     }
 
     /// @dev matches a bundle id to the bundle
@@ -234,7 +234,7 @@ contract HorseAuction is Ownable, Pausable {
         if who is a contract, use withdrawal patern instead
         allows preventing the "revert in fallback function" exploit
     */
-    function _safeTransfer(address who, uint256 what) internal {
+    function _safeTransfer(address payable who, uint256 what) internal {
         //this can be abused by having a revert function in the fallback function
         //of a malicious contract, so we fallback to the withdrawal pattern if receiver is a contract
         uint len;

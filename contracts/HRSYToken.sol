@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 import "../openzeppelin-solidity/contracts/ownership/Ownable.sol";
 import "../openzeppelin-solidity/contracts/token/ERC721/ERC721Full.sol";
@@ -66,7 +66,7 @@ contract HRSYToken is Ownable,ERC721Full {
         @param tokenId Horsey token id
         @param newName New horsey name
     */
-    function storeName(uint256 tokenId, string newName) public
+    function storeName(uint256 tokenId, string memory newName) public
     onlyMaster() {
         require(_exists(tokenId),"token not found");
         names[tokenId] = newName;

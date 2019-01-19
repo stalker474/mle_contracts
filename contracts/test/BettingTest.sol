@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 contract BettingTest {
     mapping(address => mapping(bytes32 => uint256)) bets;
@@ -7,7 +7,7 @@ contract BettingTest {
     function placeBet(bytes32 horse) external payable {
         bets[msg.sender][horse] += msg.value;
     }
-    function checkReward() external constant returns (uint) {
+    function checkReward() external view returns (uint) {
         return bets[msg.sender][bytes32("BTC")];
     }
     // method to claim the reward amount

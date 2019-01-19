@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 import "./interfaces/IHorseyGame.sol";
 import "./interfaces/IHorseyExchange.sol";
@@ -90,7 +90,7 @@ contract HorseyPilot {
     address _jokerAddress,
     address _knightAddress,
     address _paladinAddress,
-    address[3] _voters
+    address[3] memory _voters
     ) public {
         jokerAddress = _jokerAddress;
         knightAddress = _knightAddress;
@@ -378,7 +378,7 @@ contract HorseyPilot {
         }
 
         length = currentProposal.nay.length;
-        for(i = 0; i < length; i++) {
+        for(uint i = 0; i < length; i++) {
             if(currentProposal.nay[i] == msg.sender) {
                 revert("Already voted");
             }

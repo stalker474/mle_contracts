@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 import "../openzeppelin-solidity/contracts/lifecycle/Pausable.sol";
 import "../openzeppelin-solidity/contracts/ownership/Ownable.sol";
@@ -30,7 +30,8 @@ contract HorseyExchange is WalletUser, Pausable, Ownable, ERC721Holder { //also 
     uint256 public creatorEquity = 10;
 
     /// @dev  HRSY TOKEN
-    IERC721 public HRSYToken;
+    IERC721 public HRSY_ERC721;
+    IHRSYToken public HRSYToken;
 
     /// @dev Devs cut is the amount of HORSE earned by devs through their equity
     uint256 devCut;
@@ -61,7 +62,8 @@ contract HorseyExchange is WalletUser, Pausable, Ownable, ERC721Holder { //also 
     Ownable() 
     ERC721Holder() public {
         require(tokenAddress != address(0),"Invalid HRSY token address!");
-        HRSYToken = IERC721(tokenAddress);
+        HRSY_ERC721 = IERC721(tokenAddress);
+        HRSYToken = IHRSYToken(tokenAddress);
     }
 
     /**
@@ -95,7 +97,7 @@ contract HorseyExchange is WalletUser, Pausable, Ownable, ERC721Holder { //also 
     }
 
     /// @return the tokens on sale based on the user address
-    function getTokensOnSale(address user) external view returns(uint256[]) {
+    function getTokensOnSale(address user) external view returns(uint256[] memory) {
         return userBarn[user];
     }
 
@@ -115,12 +117,12 @@ contract HorseyExchange is WalletUser, Pausable, Ownable, ERC721Holder { //also 
     whenNotPaused()
     isTokenOwner(tokenId)
     nonZeroPrice(price){
-        require(HRSYToken.getApproved(tokenId) == address(this),"Exchange is not allowed to transfer");
+        require(HRSY_ERC721.getApproved(tokenId) == address(this),"Exchange is not allowed to transfer");
         uint8 upgradeCounter;
         (,,,upgradeCounter) = IHRSYToken(address(HRSYToken)).horseys(tokenId);
         require(upgradeCounter > 0,"Basic HRSY aren't tradable");
         //Transfers token from depositee to exchange (contract address)
-        HRSYToken.transferFrom(msg.sender, address(this), tokenId);
+        HRSY_ERC721.transferFrom(msg.sender, address(this), tokenId);
         
         //add the token to the market
         market[tokenId] = SaleData(price,msg.sender);
@@ -141,7 +143,7 @@ contract HorseyExchange is WalletUser, Pausable, Ownable, ERC721Holder { //also 
     originalOwnerOf(tokenId) 
     returns (bool) {
         //throws on fail - transfers token from exchange back to original owner
-        HRSYToken.transferFrom(address(this),msg.sender,tokenId);
+        HRSY_ERC721.transferFrom(address(this),msg.sender,tokenId);
         
         //Reset token on market - remove
         delete market[tokenId];
@@ -197,7 +199,7 @@ contract HorseyExchange is WalletUser, Pausable, Ownable, ERC721Holder { //also 
 
         //Transfer the ERC721 to the buyer - we leave the sale amount
         //to be withdrawn by the user (transferred from exchange)
-        HRSYToken.transferFrom(address(this), msg.sender, tokenId);
+        HRSY_ERC721.transferFrom(address(this), msg.sender, tokenId);
 
         emit HorseyPurchased(tokenId, msg.sender, totalToPay);
     }

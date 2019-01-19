@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 /**
     @dev Interface of the HRSY token
@@ -7,7 +7,7 @@ interface IHRSYToken {
     /// @dev Maps all token ids to a unique Horsey
     function horseys(uint256 tokenId) external view returns ( bytes32 dna, address race, uint32 betAmountFinney, uint8 upgradeCounter);
     /// @dev Maps a horsey token id to the horsey name
-    function names(uint256 tokenId) external view returns (string);
+    function names(uint256 tokenId) external view returns (string memory);
     /// @dev Maps a user to the amount of reward horseys he created
     function count(address client) external view returns (uint16);
     /// @dev Maps a RWRD HRSY token id to its original owner
@@ -30,7 +30,7 @@ interface IHRSYToken {
         @param tokenId Horsey token id
         @param newName New horsey name
     */
-    function storeName(uint256 tokenId, string newName) external;
+    function storeName(uint256 tokenId, string calldata newName) external;
     /**
         @dev Stores a horsey owner
         @param tokenId Horsey token id
@@ -71,5 +71,5 @@ interface IHRSYToken {
     */
     function unstoreHorsey(uint256 tokenId) external;
     /// @dev returns the address of tokenId's token owner
-    function ownerOf(uint256 tokenId) external returns (address);
+    function ownerOf(uint256 tokenId) view external returns (address);
 }

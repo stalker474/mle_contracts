@@ -1,4 +1,4 @@
-pragma solidity ^0.4.23;
+pragma solidity ^0.5.2;
 
 /**
     Race contract - used for linking ethorse Race struct 
@@ -44,7 +44,7 @@ contract Betting {
         msg.sender.transfer(value);
     }
     
-    function checkReward() external constant returns (uint) {
+    function checkReward() external view returns (uint) {
         if(winner_horse["ETH"])
             return bets[msg.sender].bets["ETH"];
         if(winner_horse["BTC"])
@@ -83,7 +83,7 @@ contract Betting {
     }
 
     // exposing the coin pool details for DApp
-    function getCoinIndex(bytes32 index, address candidate) external constant returns (uint, uint, uint, bool, uint) 
+    function getCoinIndex(bytes32 index, address candidate) external view returns (uint, uint, uint, bool, uint) 
     {
         return (0,0,0,true,bets[candidate].bets[index]);
     }

@@ -1,4 +1,4 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 import "./interfaces/IHRSYToken.sol";
 import "./interfaces/IRaceValidator.sol";
@@ -43,10 +43,10 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
     mapping(bytes32 => uint256) public config;
 
     /// @dev Maps a user to his wins count, used for claiming with RWRD HRSY
-    mapping(address => uint16) public wins;
+    mapping(address => uint256) public wins;
 
     /// @dev Maps an HRSY id to the wins counter value when last claimed reward
-    mapping(uint256 => uint16) public rewarded;
+    mapping(uint256 => uint256) public rewarded;
 
     /// @dev Devs cut is the amount of HORSE earned by devs through their equity
     uint256 devCut;
@@ -162,7 +162,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
         @param tokenId ID of the horsey to fetch
         @return (race address, dna, upgradeCounter, name)
     */
-    function getHorsey(uint256 tokenId) public view returns (address, bytes32, uint8, string, uint32) {
+    function getHorsey(uint256 tokenId) public view returns (address, bytes32, uint8, string memory, uint32) {
         bytes32 dna;
         address race;
         uint32 betAmountFinney;
@@ -206,7 +206,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
         @dev Claiming HORSE from multiple reward HRSY
         @param tokenIds Array of ID of the token to burn
     */
-    function claimMultRWRD(uint256[] tokenIds) external
+    function claimMultRWRD(uint256[] calldata tokenIds) external
     whenNotPaused() {
         uint256 totalHorseAmount = 0;
 
@@ -270,7 +270,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
         require(res,"validateWinner returned false");
 
         //check that the user bet enough
-        uint16 rewardHorseyCount = HRSYToken.count(msg.sender);
+        uint256 rewardHorseyCount = HRSYToken.count(msg.sender);
         uint256 minBet = config["MINBET"];
         if(rewardHorseyCount > 0) {
             //the minimal bet is based on the amount of reward horseys
@@ -300,7 +300,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
             The sender has to be a winner of the race and must never have claimed a horsey from this race
         @param raceContractIds Array of races addresses
     */
-    function claimMult(address[] raceContractIds) external
+    function claimMult(address[] calldata raceContractIds) external
     whenNotPaused()
     {
         //useful variables
@@ -320,7 +320,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
             require(res,"validateWinner returned false");
 
             //check that the user bet enough
-            uint16 rewardHorseyCount = HRSYToken.count(msg.sender);
+            uint256 rewardHorseyCount = HRSYToken.count(msg.sender);
             uint256 minBet = config["MINBET"];
             if(rewardHorseyCount > 0) {
                 //the minimal bet is based on the amount of reward horseys
@@ -349,7 +349,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
         @param tokenId ID of the horsey to rename
         @param newName The name to give to the horsey
     */
-    function rename(uint256 tokenId, string newName) external 
+    function rename(uint256 tokenId, string calldata newName) external 
     whenNotPaused()
     onlyOwnerOf(tokenId) 
     {
@@ -377,7 +377,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
         address contractId;
         uint32 betAmountFinney;
         (,contractId,betAmountFinney,upgradeCounter) = HRSYToken.horseys(tokenId);
-        uint256 betAmount = uint256(_shiftLeft(bytes32(betAmountFinney),15));
+        uint256 betAmount = uint256(_shiftLeft(betAmountFinney,15));
         uint amountHXP = 0;
         uint fee = 0;
         if(upgradeCounter == 0) {
@@ -424,7 +424,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
             Cant be called while paused
         @param tokenIds Array of ID of the token to burn
     */
-    function burnMult(uint256[] tokenIds) external 
+    function burnMult(uint256[] calldata tokenIds) external 
     whenNotPaused() {
         //used multiple times
         uint8 upgradeCounter;
@@ -438,7 +438,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
             require(HRSYToken.ownerOf(tokenIds[i]) == msg.sender, "Caller is not owner of this token");
 
             (,contractId,betAmountFinney,upgradeCounter) = HRSYToken.horseys(tokenIds[i]);
-            uint256 betAmount = uint256(_shiftLeft(bytes32(betAmountFinney),15));
+            uint256 betAmount = uint256(_shiftLeft(betAmountFinney,15));
             uint amountHXP = 0;
 
             if(upgradeCounter == 0) {
@@ -558,7 +558,7 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
         @dev Returns the right RWRD amount based on the upgradeCounter
         @param upgradeCounter the current amount of times the HRSY was upgraded
     */
-    function _getSelectRWRD(uint8 upgradeCounter) internal
+    function _getSelectRWRD(uint8 upgradeCounter) view internal
     returns (uint256) {
         require(upgradeCounter >= 2 && upgradeCounter <= 4,"Only values between 2 and 4");
 
@@ -590,10 +590,10 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
     function _generate_horsey(address race, address eth_address, bytes32 coinIndex, uint256 betAmount) internal returns (uint256) {
         uint256 id = _makeId(race, eth_address, coinIndex);
         //generate dna and leave 0 in the rarity bit
-        bytes32 dna = _shiftRight(keccak256(abi.encodePacked(race, coinIndex)),16);
+        uint256 dna = _shiftRight(uint256(keccak256(abi.encodePacked(race, coinIndex))),16);
         //storeHorsey checks if the token exists before minting already, so we dont have to here
-        uint32 betAmountFinney = uint32(_shiftRight(bytes32(betAmount),15)); //store the bet amount in finney not wei to save space
-        HRSYToken.storeHorsey(eth_address,id,race,dna,betAmountFinney,0);
+        uint32 betAmountFinney = uint32(_shiftRight(betAmount,15)); //store the bet amount in finney not wei to save space
+        HRSYToken.storeHorsey(eth_address,id,race,bytes32(dna),betAmountFinney,0);
         return id;
     }
 
@@ -612,13 +612,13 @@ contract HorseyGame is WalletUser, Pausable, Ownable {
     }
 
     /// @dev shifts a bytes32 right by n positions
-    function _shiftRight(bytes32 data, uint n) internal pure returns (bytes32) {
-        return bytes32(uint256(data).div(2 ** n));
+    function _shiftRight(uint256 data, uint n) internal pure returns (uint256) {
+        return uint256(data).div(2 ** n);
     }
 
     /// @dev shifts a bytes32 left by n positions
-    function _shiftLeft(bytes32 data, uint n) internal pure returns (bytes32) {
-        return bytes32(uint256(data).div(2 ** n));
+    function _shiftLeft(uint256 data, uint n) internal pure returns (uint256) {
+        return uint256(data).div(2 ** n);
     }
 
     /// @dev requires the address to be non null

@@ -1,10 +1,10 @@
-pragma solidity ^0.4.24;
+pragma solidity ^0.5.2;
 
 import "./Betting.sol";
 
 contract BettingController {
     address public owner;
-    address public race;
+    Betting public race;
 
     constructor() public {
         owner = msg.sender;

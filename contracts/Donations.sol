@@ -1,4 +1,4 @@
-pragma solidity ^0.4.25;
+pragma solidity ^0.5.2;
 
 import "../openzeppelin-solidity/contracts/math/SafeMath.sol";
 
@@ -40,12 +40,14 @@ contract Donations {
     */
     constructor() public {
         knights["Safir"].equity = 27;
+        knights["Safir"].ethAddress = 0x61F646be9E40F3C83Ae6C74e8b33f2708396D08C;
         knights["Lucan"].equity = 27;
         knights["Lucan"].ethAddress = 0x445D779acfE04C717cc6B0071D3713D7E405Dc99;
         knights["Lancelot"].equity = 27;
         knights["Lancelot"].ethAddress = 0x5873d3875274753f6680a2256aCb02F2e42Be1A6;
         knights["Hoel"].equity = 11;
         knights["YwainTheBastard"].equity = 8;
+        knights["YwainTheBastard"].ethAddress = 0x2AB8D865Db8b9455F4a77C70B9D8d953E314De28;
     }
     
     /**
