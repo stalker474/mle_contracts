@@ -21,14 +21,12 @@ contract Donations {
     mapping(string => Knight) knights;
 
     /// @dev handle to access HORSE token contract to make transfers
-    ERC20Interface constant horseToken = ERC20Interface(0x5B0751713b2527d7f002c0c4e2a37e1219610A6B);
+    ERC20Interface horseToken = ERC20Interface(0x5B0751713b2527d7f002c0c4e2a37e1219610A6B);
 
     ///@dev true for HORSE, false for ETH
     mapping(bool => uint256) private _toDistribute;
     ///@dev true for HORSE, false for ETH
     mapping(bool => mapping(address => uint256)) private _balances;
-    ///@dev used internally for computation
-    mapping(string => uint256) private _due;
 
     /// @dev helpers to make code look better
     bool constant ETH = false;
@@ -38,7 +36,7 @@ contract Donations {
         @dev Initialize the contract with the correct knights and their equities and addresses
         All spoils are to be shared by Five Knights, the distribution of which is decided by God almighty
     */
-    constructor() public {
+    /*constructor() public {
         knights["Safir"].equity = 27;
         knights["Safir"].ethAddress = 0x61F646be9E40F3C83Ae6C74e8b33f2708396D08C;
         knights["Lucan"].equity = 27;
@@ -46,8 +44,23 @@ contract Donations {
         knights["Lancelot"].equity = 27;
         knights["Lancelot"].ethAddress = 0x5873d3875274753f6680a2256aCb02F2e42Be1A6;
         knights["Hoel"].equity = 11;
+        knights["Hoel"].ethAddress = 0x85a4F876A007649048a7D44470ec1d328895B8bb;
         knights["YwainTheBastard"].equity = 8;
         knights["YwainTheBastard"].ethAddress = 0x2AB8D865Db8b9455F4a77C70B9D8d953E314De28;
+    }*/
+
+    constructor(address[] memory addresses) public {
+        knights["Safir"].equity = 27;
+        knights["Safir"].ethAddress = addresses[0];
+        knights["Lucan"].equity = 27;
+        knights["Lucan"].ethAddress = addresses[1];
+        knights["Lancelot"].equity = 27;
+        knights["Lancelot"].ethAddress = addresses[2];
+        knights["Hoel"].equity = 11;
+        knights["Hoel"].ethAddress = addresses[3];
+        knights["YwainTheBastard"].equity = 8;
+        knights["YwainTheBastard"].ethAddress = addresses[4];
+        horseToken = ERC20Interface(addresses[5]);
     }
     
     /**
@@ -129,19 +142,19 @@ contract Donations {
             //we divide the amount to distribute by 100 to know how much each % represents
             uint256 parts = _toDistribute[isHorse].div(100);
             //the due of each knight is the % value * equity (27 equity = 27 * 1% => 27% of the amount to distribute)
-            _due["Safir"] = knights["Safir"].equity.mul(parts);
-            _due["Lucan"] = knights["Lucan"].equity.mul(parts);
-            _due["Lancelot"] = knights["Lancelot"].equity.mul(parts);
-            _due["YwainTheBastard"] = knights["YwainTheBastard"].equity.mul(parts);
-            //the 5th knight due is computed by substraction of the others to avoid dust error due to division
-            _due["Hoel"] = _toDistribute[isHorse].sub(_due["Safir"].add(_due["Lucan"]).add(_due["Lancelot"]).add(_due["YwainTheBastard"]));
+            uint256 dueSafir = knights["Safir"].equity.mul(parts);
+            uint256 dueLucan = knights["Lucan"].equity.mul(parts);
+            uint256 dueLancelot = knights["Lancelot"].equity.mul(parts);
+            uint256 dueYwainTheBastard = knights["YwainTheBastard"].equity.mul(parts);
 
             //all balances are augmented by the computed due
-            _balances[isHorse][knights["Safir"].ethAddress] = _balances[isHorse][knights["Safir"].ethAddress].add(_due["Safir"]);
-            _balances[isHorse][knights["Lucan"].ethAddress] = _balances[isHorse][knights["Lucan"].ethAddress].add(_due["Lucan"]);
-            _balances[isHorse][knights["Lancelot"].ethAddress] = _balances[isHorse][knights["Lancelot"].ethAddress].add(_due["Lancelot"]);
-            _balances[isHorse][knights["YwainTheBastard"].ethAddress] = _balances[isHorse][knights["YwainTheBastard"].ethAddress].add(_due["YwainTheBastard"]);
-            _balances[isHorse][knights["Hoel"].ethAddress] = _balances[isHorse][knights["Hoel"].ethAddress].add(_due["Hoel"]);
+            _balances[isHorse][knights["Safir"].ethAddress] = _balances[isHorse][knights["Safir"].ethAddress].add(dueSafir);
+            _balances[isHorse][knights["Lucan"].ethAddress] = _balances[isHorse][knights["Lucan"].ethAddress].add(dueLucan);
+            _balances[isHorse][knights["Lancelot"].ethAddress] = _balances[isHorse][knights["Lancelot"].ethAddress].add(dueLancelot);
+            _balances[isHorse][knights["YwainTheBastard"].ethAddress] = _balances[isHorse][knights["YwainTheBastard"].ethAddress].add(dueYwainTheBastard);
+            //the 5th knight due is computed by substraction of the others to avoid dust error due to division
+            _balances[isHorse][knights["Hoel"].ethAddress] = _balances[isHorse][knights["Hoel"].ethAddress]
+            .add(_toDistribute[isHorse] - dueSafir - dueLucan - dueLancelot - dueYwainTheBastard);
             
             //the amount to distribute is set to zero
             _toDistribute[isHorse] = 0;
