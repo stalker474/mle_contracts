@@ -4,10 +4,12 @@ import "../../ethereum-api/oraclizeAPI_0.5.sol";
 import "../openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "../openzeppelin-solidity/contracts/lifecycle/Pausable.sol";
 import "../openzeppelin-solidity/contracts/ownership/Ownable.sol";
+import "../solidity-stringutils/src/strings.sol";
 
 contract PriceRoll is usingOraclize, Pausable, Ownable {
 
     using SafeMath for uint256;
+    using strings for *;
 
     // events
     event Rolling(uint256 round);
@@ -16,10 +18,10 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     event RollRefunded(uint256 round);
     event RollClaimed(uint256 round, address indexed player);
     event HouseEdgeChanged(uint256 new_edge);
-    event BetPlaced(uint256 round, address indexed player, uint8 expected_value, bool is_up);
+    event BetPlaced(uint256 round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
 
     // config
-    uint256 public config_roll_cooldown = 2 minutes;
+    uint256 public config_roll_cooldown = 1 minutes;
     uint256 public config_refund_delay = 50 minutes;
     uint256 public config_gas_limit = 300000;
     uint256 public config_min_bet = 0.02 ether;
@@ -34,9 +36,9 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     enum CoinRotation {ETHEREUM, BITCOIN, LITECOIN}
     uint8 constant coin_count = 3;
 
-    string constant public query_stringETH = "json(https://api.coinmarketcap.com/v1/ticker/ethereum/).0.price_usd";
-    string constant public query_stringBTC = "json(https://api.coinmarketcap.com/v1/ticker/bitcoin/).0.price_usd";
-    string constant public query_stringLTC = "json(https://api.coinmarketcap.com/v1/ticker/litecoin/).0.price_usd";
+    string constant public query_stringETH = "json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD).USD";
+    string constant public query_stringBTC = "json(https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD).USD";
+    string constant public query_stringLTC = "json(https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD).USD";
 
     // stat values
     uint256 public current_roll = 0;
@@ -58,6 +60,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         bytes32 query_price2;
         uint256 result_price1;
         uint256 result_price2;
+        uint256 result_timestamp1;
+        uint256 result_timestamp2;
         uint256 timestamp;
         uint256 pool;
         State state;
@@ -128,18 +132,21 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 
         roll.pool = roll.pool.add(bet.amount);
 
-        emit BetPlaced(current_roll, msg.sender, expected_value, is_up);
+        emit BetPlaced(current_roll, msg.sender, msg.value, expected_value, is_up);
     }
 
     function claim(uint256 round) external {
-        Roll storage roll = rolls[current_roll]; 
+        Roll storage roll = rolls[round]; 
         Bet storage bet = roll.bets[msg.sender];
+        require(bet.value > 0,"not a bettor");
 
-        bool forced_refund = roll.timestamp + config_refund_delay < now;
-        if(forced_refund) {
-            roll.state = State.REFUND;
+        if(roll.state != State.DONE && roll.state != State.REFUND && roll.state != State.READY) {
+            bool forced_refund = roll.timestamp + config_refund_delay < now;
+            if(forced_refund) {
+                roll.state = State.REFUND;
+            }
         }
-
+        
         if(roll.state == State.REFUND) {
             require(bet.amount > 0, "Already refunded");
             uint256 to_refund = bet.amount;
@@ -152,7 +159,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             uint256 to_pay = 0;
 
             require(guessed_random || guessed_pricemov, "No winnings to claim");
-            uint256 chanceOfLoss = 100-bet.value;
+            uint256 chanceOfLoss = bet.value;
             if(guessed_random) {
                 uint256 win = (((bet.amount * (chanceOfLoss/100)) + bet.amount));
                 uint256 edge = win.mul(config_house_edge).div(1000);
@@ -205,11 +212,12 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
                 roll.state = State(uint(roll.state) + 1);
             }
         } else if(_queryId == roll.query_price1) {
+            //(roll.result_price1, roll.result_timestamp1) = _extract(_result);
             roll.result_price1 = _stringToUintNormalize(_result);
             roll.state = State(uint(roll.state) + 1);
         } else if(_queryId == roll.query_price2) {
-
             roll.result_price2 = _stringToUintNormalize(_result);
+            //(roll.result_price2, roll.result_timestamp2) = _extract(_result);
             roll.state = State(uint(roll.state) + 1);
         } else {
 
@@ -220,11 +228,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 
         if(roll.state == State.DONE) {
             //check price change
-            bool is_up = true;
-            if(roll_id > 1) {
-                is_up = rolls[roll_id-1].result_price1 < roll.result_price2;
-            }
-            roll.is_up = is_up;
+            roll.is_up = rolls[roll_id-1].result_price1 < roll.result_price2;
             //we check with the previous roll
             emit RollEnded(roll_id, roll.result_rng, rolls[roll_id-1].result_price1, rolls[roll_id-1].result_price2);
         }
@@ -283,6 +287,17 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         latest_roll = block.timestamp;
 
         emit NewRoll(current_roll);
+    }
+
+    function _extract(string memory entry) internal pure returns (uint256, uint256) {
+        strings.slice memory sl = entry.toSlice();
+        strings.slice memory delim = "\"".toSlice();
+        string[] memory parts = new string[](4);
+        for(uint i = 0; i < parts.length; i++) {
+            parts[i] = sl.split(delim).toString();
+        }
+
+        return (_stringToUintNormalize(parts[1]), _stringToUintNormalize(parts[3]));
     }
     
     //ETHORSE CODE
