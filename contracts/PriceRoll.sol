@@ -12,21 +12,21 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     // events
     event Rolling(uint256 round);
     event NewRoll(uint256 round);
-    event RollEnded(uint256 round, uint8 value, bool is_up);
+    event RollEnded(uint256 round, uint8 value, uint256 start_price, uint256 end_price);
     event RollRefunded(uint256 round);
     event RollClaimed(uint256 round, address indexed player);
     event HouseEdgeChanged(uint256 new_edge);
-    event BetPlaced(uint256 round, address indexed player);
+    event BetPlaced(uint256 round, address indexed player, uint8 expected_value, bool is_up);
 
     // config
-    uint256 config_roll_cooldown = 1 minutes;
-    uint256 config_refund_delay = 50 minutes;
-    uint256 config_gas_limit = 300000;
-    uint256 config_min_bet = 0.05 ether;
-    uint256 config_house_edge = 20; //2.0%
-    uint256 config_house_cut = 50; //5.0%
-    uint256 config_bonus_mult = 150; //15%
-    uint256 config_pricecheck_delay = 1 minutes;
+    uint256 public config_roll_cooldown = 2 minutes;
+    uint256 public config_refund_delay = 50 minutes;
+    uint256 public config_gas_limit = 300000;
+    uint256 public config_min_bet = 0.02 ether;
+    uint256 public config_house_edge = 20; //2.0%
+    uint256 public config_house_cut = 50; //5.0%
+    uint256 public config_bonus_mult = 150; //15%
+    uint256 public config_pricecheck_delay = 1 minutes;
     address payable config_cut_address = 0xA54741f7fE21689B59bD7eAcBf3A2947cd3f3BD4;
 
     // helpers
@@ -59,6 +59,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         uint256 result_price1;
         uint256 result_price2;
         uint256 timestamp;
+        uint256 pool;
         State state;
         CoinRotation coin;
         uint8 result_rng;
@@ -108,8 +109,6 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         emit Rolling(current_roll);
 
         _generateRoll();
-
-        emit NewRoll(current_roll);
     }
 
     function placeBet(uint8 expected_value, bool is_up) external payable
@@ -127,7 +126,9 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         bet.value = expected_value;
         bet.is_up = is_up;
 
-        emit BetPlaced(current_roll, msg.sender);
+        roll.pool = roll.pool.add(bet.amount);
+
+        emit BetPlaced(current_roll, msg.sender, expected_value, is_up);
     }
 
     function claim(uint256 round) external {
@@ -225,7 +226,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             }
             roll.is_up = is_up;
             //we check with the previous roll
-            emit RollEnded(roll_id, roll.result_rng, is_up);
+            emit RollEnded(roll_id, roll.result_rng, rolls[roll_id-1].result_price1, rolls[roll_id-1].result_price2);
         }
     }
 
@@ -280,6 +281,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         current_roll = current_roll.add(1);
         current_coin = CoinRotation((uint(current_coin)+1)%coin_count);
         latest_roll = block.timestamp;
+
+        emit NewRoll(current_roll);
     }
     
     //ETHORSE CODE

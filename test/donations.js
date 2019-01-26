@@ -70,7 +70,7 @@ contract('Donations', function (accounts) {
         let amountETHAccBefore = await web3.eth.getBalance(accounts[0]);
         let amountHORSEAccBefore = await horse.balanceOf(accounts[0]);
 
-        for(let i = 0; i < 50; i++) {
+        for(let i = 0; i < 100; i++) {
             let rand = Math.floor(Math.random()*3);
             
             console.log(rand);
