@@ -18,6 +18,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     event RollRefunded(uint256 round);
     event RollClaimed(uint256 round, address indexed player);
     event BetPlaced(uint256 round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
+    event OraclizeError(uint256 value);
 
     // config
     uint256 public config_roll_cooldown = 1 minutes;
@@ -39,8 +40,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     string constant public query_stringETH = "json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD).USD";
     string constant public query_stringBTC = "json(https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD).USD";
     string constant public query_stringLTC = "json(https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD).USD";
-    string constant encryptedApi = "BHMNc5dt2UKiQeoTPVhMQ+giuKsxJtzNGoWFRR0uKUl/8hnz1+SuxHFNdvwcu2i8+Vw93bozIDKtds2J7iW6FvLGygUo4BLoGv+J5AniiOonD+JlxoqiNUKySN4Q8hO0tHysuHkSERBENwdIUra9uFXrTRI0dpu+K5STmLs8f8YctwO9Z58mbhB4kc/FpPSPozRJ/c9ka6I=";
-
+    string constant encryptedApi = "${[decrypt]BHMNc5dt2UKiQeoTPVhMQ+giuKsxJtzNGoWFRR0uKUl/8hnz1+SuxHFNdvwcu2i8+Vw93bozIDKtds2J7iW6FvLGygUo4BLoGv+J5AniiOonD+JlxoqiNUKySN4Q8hO0tHysuHkSERBENwdIUra9uFXrTRI0dpu+K5STmLs8f8YctwO9Z58mbhB4kc/FpPSPozRJ/c9ka6I=}";
     // stat values
     uint256 public current_roll = 0;
     uint256 public latest_roll = 0;
@@ -85,44 +85,43 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     function newRoll() external payable
     whenNotPaused() {
         require(latest_roll + config_roll_cooldown <= block.timestamp, "roll is cooling down");
-
-        Roll storage roll = rolls[current_roll]; 
-        
-        string memory query;
-        if(current_coin == CoinRotation.ETHEREUM) {
-            query = query_stringETH;
-        } else if(current_coin == CoinRotation.BITCOIN) {
-            query = query_stringBTC;
+        uint256 call_price = _checkPrice();
+        if(call_price > msg.value) {
+            emit OraclizeError(call_price);
         } else {
-            query = query_stringLTC;
-        }
-
-        //TLSNotary proof for URLs
-        oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
-        uint256 call_price = oraclize_getPrice("URL", config_gas_limit) * 2; //2 calls
-        roll.query_price1 = oraclize_query(0, "URL", query, encryptedApi, config_gas_limit);
-        roll.query_price2 = oraclize_query(config_pricecheck_delay, "URL", query, encryptedApi, config_gas_limit);
-
-        //only ledger proof for random source
-        oraclize_setProof(proofType_Ledger);
-
-        call_price = call_price.add(oraclize_getPrice("Random", config_random_gas_limit)); //1 call)
-        roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_random_gas_limit);
-
-        require(call_price <= msg.value,"Not send enough for oraclize");
-        //maybe in the future send the rest back if some is left
+            Roll storage roll = rolls[current_roll]; 
         
-        roll.timestamp = block.timestamp;
-        roll.state = State.WAITING_QUERY1;
-        roll.coin = current_coin;
+            string memory query;
+            if(current_coin == CoinRotation.ETHEREUM) {
+                query = query_stringETH;
+            } else if(current_coin == CoinRotation.BITCOIN) {
+                query = query_stringBTC;
+            } else {
+                query = query_stringLTC;
+            }
 
-        _query_to_roll[roll.query_rng] = current_roll;
-        _query_to_roll[roll.query_price1] = current_roll;
-        _query_to_roll[roll.query_price2] = current_roll;
+            oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
+            roll.query_price1 = oraclize_query(0, "URL", query, encryptedApi, config_gas_limit);
+            roll.query_price2 = oraclize_query(config_pricecheck_delay, "URL", query, encryptedApi, config_gas_limit);
+            //only ledger proof for random source
+            oraclize_setProof(proofType_Ledger);
+            roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_random_gas_limit);
 
-        emit Rolling(current_roll);
+            
+            //maybe in the future send the rest back if some is left
+            
+            roll.timestamp = block.timestamp;
+            roll.state = State.WAITING_QUERY1;
+            roll.coin = current_coin;
 
-        _generateRoll();
+            _query_to_roll[roll.query_rng] = current_roll;
+            _query_to_roll[roll.query_price1] = current_roll;
+            _query_to_roll[roll.query_price2] = current_roll;
+
+            emit Rolling(current_roll);
+
+            _generateRoll();
+        }
     }
 
     function betFromInternalWallet(uint256 amount, uint8 expected_value, bool is_up) public 
@@ -322,6 +321,14 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         latest_roll = block.timestamp;
 
         emit NewRoll(current_roll);
+    }
+
+    function _checkPrice() internal returns (uint256) {
+        //TLSNotary proof for URLs
+        oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
+        uint256 call_price = oraclize_getPrice("URL", config_gas_limit) * 2; //2 calls
+        oraclize_setProof(proofType_Ledger);
+        return call_price.add(oraclize_getPrice("Random", config_random_gas_limit)); //1 call
     }
 
     /*function _extract(string memory entry) internal pure returns (uint256, uint256) {
