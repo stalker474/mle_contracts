@@ -1,15 +1,15 @@
 pragma solidity ^0.5.2;
 
-import "../../ethereum-api/oraclizeAPI_0.5.sol";
+import "../ethereum-api/oraclizeAPI_0.5.sol";
 import "../openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "../openzeppelin-solidity/contracts/lifecycle/Pausable.sol";
 import "../openzeppelin-solidity/contracts/ownership/Ownable.sol";
-import "../solidity-stringutils/src/strings.sol";
+//import "../solidity-stringutils/src/strings.sol";
 
 contract PriceRoll is usingOraclize, Pausable, Ownable {
 
     using SafeMath for uint256;
-    using strings for *;
+//    using strings for *;
 
     // events
     event Rolling(uint256 round);
@@ -17,13 +17,13 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     event RollEnded(uint256 round, uint8 value, uint256 start_price, uint256 end_price);
     event RollRefunded(uint256 round);
     event RollClaimed(uint256 round, address indexed player);
-    event HouseEdgeChanged(uint256 new_edge);
     event BetPlaced(uint256 round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
 
     // config
     uint256 public config_roll_cooldown = 1 minutes;
     uint256 public config_refund_delay = 50 minutes;
     uint256 public config_gas_limit = 300000;
+    uint256 public config_random_gas_limit = 300000;
     uint256 public config_min_bet = 0.02 ether;
     uint256 public config_house_edge = 20; //2.0%
     uint256 public config_house_cut = 50; //5.0%
@@ -39,14 +39,13 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     string constant public query_stringETH = "json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD).USD";
     string constant public query_stringBTC = "json(https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD).USD";
     string constant public query_stringLTC = "json(https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD).USD";
+    string constant encryptedApi = "BHMNc5dt2UKiQeoTPVhMQ+giuKsxJtzNGoWFRR0uKUl/8hnz1+SuxHFNdvwcu2i8+Vw93bozIDKtds2J7iW6FvLGygUo4BLoGv+J5AniiOonD+JlxoqiNUKySN4Q8hO0tHysuHkSERBENwdIUra9uFXrTRI0dpu+K5STmLs8f8YctwO9Z58mbhB4kc/FpPSPozRJ/c9ka6I=";
 
     // stat values
     uint256 public current_roll = 0;
     uint256 public latest_roll = 0;
     CoinRotation public current_coin = CoinRotation.ETHEREUM;
     uint256 public house;
-
-    
 
     struct Bet {
         uint256 amount;
@@ -74,12 +73,12 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     mapping(uint256 => Roll) public rolls;
     mapping(bytes32 => uint256) internal _query_to_roll;
     mapping(bytes32 => bool) internal _processed;
+    mapping(address => uint256) public balanceOf;
 
 
     constructor() public
     Pausable()
     Ownable() {
-        oraclize_setProof(proofType_Ledger); // sets the Ledger authenticity proof in the constructor
         _generateRoll();
     }
 
@@ -97,10 +96,21 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         } else {
             query = query_stringLTC;
         }
-        roll.query_price1 = oraclize_query(0, "URL", query, config_gas_limit);
-        roll.query_price2 = oraclize_query(config_pricecheck_delay, "URL", query, config_gas_limit);
 
-        roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_gas_limit);
+        //TLSNotary proof for URLs
+        oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
+        uint256 call_price = oraclize_getPrice("URL", config_gas_limit) * 2; //2 calls
+        roll.query_price1 = oraclize_query(0, "URL", query, encryptedApi, config_gas_limit);
+        roll.query_price2 = oraclize_query(config_pricecheck_delay, "URL", query, encryptedApi, config_gas_limit);
+
+        //only ledger proof for random source
+        oraclize_setProof(proofType_Ledger);
+
+        call_price = call_price.add(oraclize_getPrice("Random", config_random_gas_limit)); //1 call)
+        roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_random_gas_limit);
+
+        require(call_price <= msg.value,"Not send enough for oraclize");
+        //maybe in the future send the rest back if some is left
         
         roll.timestamp = block.timestamp;
         roll.state = State.WAITING_QUERY1;
@@ -115,24 +125,42 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         _generateRoll();
     }
 
-    function placeBet(uint8 expected_value, bool is_up) external payable
+    function betFromInternalWallet(uint256 amount, uint8 expected_value, bool is_up) public 
     whenNotPaused() {
-        require(msg.value >= config_min_bet, "Bet too small");
+        require(balanceOf[msg.sender] >= amount, "Not enough to bet the specified amount");
         require(expected_value > 0 && expected_value < 100,"Expected value must be in the range of 1 to 99");
+
         Roll storage roll = rolls[current_roll]; 
         Bet storage bet = roll.bets[msg.sender];
-        require(bet.amount == 0, "Already bet");
+        require(bet.amount == 0, "Already placed a bet");
 
-        uint256 commission = msg.value.mul(config_house_cut).div(1000);
-        house = house.add(commission);
-
-        bet.amount = msg.value.sub(commission);
+        bet.amount = amount;
         bet.value = expected_value;
         bet.is_up = is_up;
 
         roll.pool = roll.pool.add(bet.amount);
 
-        emit BetPlaced(current_roll, msg.sender, msg.value, expected_value, is_up);
+        balanceOf[msg.sender] = balanceOf[msg.sender].sub(amount);
+
+        emit BetPlaced(current_roll, msg.sender, amount, expected_value, is_up);
+    }
+
+    function placeBet(uint8 expected_value, bool is_up) external payable {
+        //add to internal wallet 
+        balanceOf[msg.sender] = balanceOf[msg.sender].add(msg.value);
+        betFromInternalWallet(msg.value, expected_value, is_up);
+    }
+
+    function withdrawWallet() external
+    {
+        uint256 balance = balanceOf[msg.sender];
+        balanceOf[msg.sender] = 0;
+        msg.sender.transfer(balance);
+    }
+
+    function creditWallet() external payable
+    {
+        balanceOf[msg.sender] = balanceOf[msg.sender].add(msg.value);
     }
 
     function claim(uint256 round) external {
@@ -149,9 +177,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         
         if(roll.state == State.REFUND) {
             require(bet.amount > 0, "Already refunded");
-            uint256 to_refund = bet.amount;
-            bet.amount = 0;
-            msg.sender.transfer(to_refund);
+            balanceOf[msg.sender] = balanceOf[msg.sender].add(bet.amount);
+            delete(roll.bets[msg.sender]);
         } else {
             bool guessed_random = bet.value <= roll.result_rng;
             bool guessed_pricemov = bet.is_up == roll.is_up; 
@@ -160,17 +187,17 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 
             require(guessed_random || guessed_pricemov, "No winnings to claim");
             uint256 chanceOfLoss = bet.value;
+            uint256 realBet = bet.amount.mul(uint256(1000).sub(config_house_cut).div(1000));
             if(guessed_random) {
-                uint256 win = (((bet.amount * (chanceOfLoss/100)) + bet.amount));
+                uint256 win = (((realBet * (chanceOfLoss/100)) + realBet));
                 uint256 edge = win.mul(config_house_edge).div(1000);
                 to_pay = to_pay.add(win.sub(edge));
             }
             if(guessed_pricemov) {
-                uint256 bonus = bet.amount.mul(config_bonus_mult).div(1000);
+                uint256 bonus = realBet.mul(config_bonus_mult).div(1000);
                 to_pay = to_pay.add(bonus);
             }
-
-            msg.sender.transfer(to_pay);
+            balanceOf[msg.sender] = balanceOf[msg.sender].add(to_pay);
             emit RollClaimed(round,msg.sender);
         }
     }
@@ -195,12 +222,12 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         _processed[_queryId] = true;
 
         uint256 roll_id = _query_to_roll[_queryId];
+        require(roll_id > 0, "Invalid _queryId");
         Roll storage roll = rolls[roll_id];
 
         if(_queryId == roll.query_rng) {
 
             if (oraclize_randomDS_proofVerify__returnCode(_queryId, _result, _proof) != 0) {
-
                 // the proof verification has failed
                 roll.state = State.REFUND;
                 emit RollRefunded(roll_id);
@@ -228,9 +255,13 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 
         if(roll.state == State.DONE) {
             //check price change
-            roll.is_up = rolls[roll_id-1].result_price1 < roll.result_price2;
-            //we check with the previous roll
-            emit RollEnded(roll_id, roll.result_rng, rolls[roll_id-1].result_price1, rolls[roll_id-1].result_price2);
+            roll.is_up = roll.result_price1 < roll.result_price2;
+            
+            //take commission etc...
+            uint256 commission = roll.pool.mul(config_house_cut).div(1000);
+            house = house.add(commission);
+
+            emit RollEnded(roll_id, roll.result_rng, roll.result_price1, roll.result_price2);
         }
     }
 
@@ -245,7 +276,6 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     onlyOwner() {
         require(new_edge <= 500,"max 50%");
         config_house_edge = new_edge;
-        emit HouseEdgeChanged(config_house_edge);
     }
 
     function setBonus(uint256 new_bonus) external
@@ -276,6 +306,11 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         config_gas_limit = new_gaslimit;
     }
 
+    function setRandomGasLimit(uint256 new_gaslimit) external
+    onlyOwner() {
+        config_random_gas_limit = new_gaslimit;
+    }
+
     function setPriceCheckDelay(uint256 new_delay) external
     onlyOwner() {
         config_pricecheck_delay = new_delay;
@@ -289,7 +324,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         emit NewRoll(current_roll);
     }
 
-    function _extract(string memory entry) internal pure returns (uint256, uint256) {
+    /*function _extract(string memory entry) internal pure returns (uint256, uint256) {
         strings.slice memory sl = entry.toSlice();
         strings.slice memory delim = "\"".toSlice();
         string[] memory parts = new string[](4);
@@ -298,7 +333,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         }
 
         return (_stringToUintNormalize(parts[1]), _stringToUintNormalize(parts[3]));
-    }
+    }*/
     
     //ETHORSE CODE
     // utility function to convert string to integer with precision consideration
