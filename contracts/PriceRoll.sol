@@ -37,10 +37,10 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     enum CoinRotation {ETHEREUM, BITCOIN, LITECOIN}
     uint8 constant coin_count = 3;
 
-    string constant public query_stringETH = "json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD).USD";
-    string constant public query_stringBTC = "json(https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD).USD";
-    string constant public query_stringLTC = "json(https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD).USD";
-    string constant encryptedApi = "${[decrypt]BHMNc5dt2UKiQeoTPVhMQ+giuKsxJtzNGoWFRR0uKUl/8hnz1+SuxHFNdvwcu2i8+Vw93bozIDKtds2J7iW6FvLGygUo4BLoGv+J5AniiOonD+JlxoqiNUKySN4Q8hO0tHysuHkSERBENwdIUra9uFXrTRI0dpu+K5STmLs8f8YctwO9Z58mbhB4kc/FpPSPozRJ/c9ka6I=}";
+    string constant public query_stringETH = "json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD&extraParams=PriceRoll&sign=true).USD";
+    string constant public query_stringBTC = "json(https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD&extraParams=PriceRoll&sign=true).USD";
+    string constant public query_stringLTC = "json(https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD&extraParams=PriceRoll&sign=true).USD";
+
     // stat values
     uint256 public current_roll = 0;
     uint256 public latest_roll = 0;
@@ -101,8 +101,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             }
 
             oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
-            roll.query_price1 = oraclize_query(0, "URL", query, encryptedApi, config_gas_limit);
-            roll.query_price2 = oraclize_query(config_pricecheck_delay, "URL", query, encryptedApi, config_gas_limit);
+            roll.query_price1 = oraclize_query(0, "URL", query, config_gas_limit);
+            roll.query_price2 = oraclize_query(config_pricecheck_delay, "URL", query, config_gas_limit);
             //only ledger proof for random source
             oraclize_setProof(proofType_Ledger);
             roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_random_gas_limit);
