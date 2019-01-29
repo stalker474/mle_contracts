@@ -127,7 +127,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     function betFromInternalWallet(uint256 amount, uint8 expected_value, bool is_up) public 
     whenNotPaused() {
         require(balanceOf[msg.sender] >= amount, "Not enough to bet the specified amount");
-        require(expected_value > 0 && expected_value < 100,"Expected value must be in the range of 1 to 99");
+        require(expected_value > 1 && expected_value <= 100,"Expected value must be in the range of 2 to 100");
 
         Roll storage roll = rolls[current_roll]; 
         Bet storage bet = roll.bets[msg.sender];
@@ -179,16 +179,15 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             balanceOf[msg.sender] = balanceOf[msg.sender].add(bet.amount);
             delete(roll.bets[msg.sender]);
         } else {
-            bool guessed_random = bet.value <= roll.result_rng;
+            bool guessed_random = bet.value > roll.result_rng;
             bool guessed_pricemov = bet.is_up == roll.is_up; 
 
             uint256 to_pay = 0;
 
             require(guessed_random || guessed_pricemov, "No winnings to claim");
-            uint256 chanceOfLoss = bet.value;
             uint256 realBet = bet.amount.mul(uint256(1000).sub(config_house_cut).div(1000));
             if(guessed_random) {
-                uint256 win = (((realBet * (chanceOfLoss/100)) + realBet));
+                uint256 win = (((realBet * (101/bet.value)) + realBet));
                 uint256 edge = win.mul(config_house_edge).div(1000);
                 to_pay = to_pay.add(win.sub(edge));
             }
