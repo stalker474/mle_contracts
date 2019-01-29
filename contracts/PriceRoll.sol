@@ -179,20 +179,19 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             balanceOf[msg.sender] = balanceOf[msg.sender].add(bet.amount);
             delete(roll.bets[msg.sender]);
         } else {
-            bool guessed_random = bet.value > roll.result_rng;
+            bool guessed_random = roll.result_rng < bet.value;
             bool guessed_pricemov = bet.is_up == roll.is_up; 
 
             uint256 to_pay = 0;
 
             require(guessed_random || guessed_pricemov, "No winnings to claim");
-            uint256 realBet = bet.amount.mul(uint256(1000).sub(config_house_cut).div(1000));
+            uint256 bet_after_cut = bet.amount.mul(uint256(1000).sub(config_house_cut).div(1000));
             if(guessed_random) {
-                uint256 win = (((realBet * (101/bet.value)) + realBet));
-                uint256 edge = win.mul(config_house_edge).div(1000);
-                to_pay = to_pay.add(win.sub(edge));
+                uint256 win = (((((bet_after_cut * (100-(bet.value-1))) / (bet.value-1) + bet_after_cut)) * uint256(1000 - config_house_edge).div(1000)));
+                to_pay = to_pay.add(win);
             }
             if(guessed_pricemov) {
-                uint256 bonus = realBet.mul(config_bonus_mult).div(1000);
+                uint256 bonus = bet.amount.mul(config_bonus_mult).div(1000);
                 to_pay = to_pay.add(bonus);
             }
             balanceOf[msg.sender] = balanceOf[msg.sender].add(to_pay);
@@ -274,6 +273,12 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     onlyOwner() {
         require(new_edge <= 500,"max 50%");
         config_house_edge = new_edge;
+    }
+
+    function setHouseCut(uint256 new_cut) external
+    onlyOwner() {
+        require(new_cut <= 500,"max 50%");
+        config_house_cut = new_cut;
     }
 
     function setBonus(uint256 new_bonus) external
