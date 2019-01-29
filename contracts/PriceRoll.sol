@@ -127,7 +127,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     function betFromInternalWallet(uint256 amount, uint8 expected_value, bool is_up) public 
     whenNotPaused() {
         require(balanceOf[msg.sender] >= amount, "Not enough to bet the specified amount");
-        require(expected_value > 1 && expected_value <= 100,"Expected value must be in the range of 2 to 100");
+        require(expected_value > 1 && expected_value < 100,"Expected value must be in the range of 2 to 99");
 
         Roll storage roll = rolls[current_roll]; 
         Bet storage bet = roll.bets[msg.sender];
