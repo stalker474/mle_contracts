@@ -16,7 +16,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     event NewRoll(uint256 round);
     event RollEnded(uint256 round, uint8 value, uint256 start_price, uint256 end_price);
     event RollRefunded(uint256 round);
-    event RollClaimed(uint256 round, address indexed player);
+    event RollClaimed(uint256 round, address indexed player, uint256 amount);
     event BetPlaced(uint256 round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
     event OraclizeError(uint256 value);
 
@@ -185,9 +185,9 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             uint256 to_pay = 0;
 
             require(guessed_random || guessed_pricemov, "No winnings to claim");
-            uint256 bet_after_cut = bet.amount.mul(uint256(1000).sub(config_house_cut).div(1000));
+            uint256 bet_after_cut = bet.amount / 1000 * (1000 - config_house_cut);
             if(guessed_random) {
-                uint256 win = (((((bet_after_cut * (100-(bet.value-1))) / (bet.value-1) + bet_after_cut)) * uint256(1000 - config_house_edge).div(1000)));
+                uint256 win = (((((bet_after_cut * (100-(uint256(bet.value)-1))) / (uint256(bet.value)-1) + bet_after_cut)) / 1000 * (1000 - config_house_edge)));
                 to_pay = to_pay.add(win);
             }
             if(guessed_pricemov) {
@@ -195,7 +195,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
                 to_pay = to_pay.add(bonus);
             }
             balanceOf[msg.sender] = balanceOf[msg.sender].add(to_pay);
-            emit RollClaimed(round,msg.sender);
+            emit RollClaimed(round,msg.sender,to_pay);
         }
     }
 
@@ -207,6 +207,10 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     function destroy() external
     onlyOwner() {
         selfdestruct(msg.sender);
+    }
+
+    function userBalance() view external returns (uint256) {
+        return balanceOf[msg.sender];
     }
 
     // the callback function is called by Oraclize when the result is ready
