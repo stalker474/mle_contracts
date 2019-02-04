@@ -14,7 +14,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     /// @dev events
     event Rolling(uint256 round);
     event NewRoll(uint256 round);
-    event RollEnded(uint256 round, uint8 value, uint256 start_price, uint256 end_price);
+    event RollEnded(uint256 round, string seed, uint256 start_price, uint256 end_price);
     event RollRefunded(uint256 round);
     event RollClaimed(uint256 round, address indexed player, uint256 amount);
     event BetPlaced(uint256 round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
@@ -77,6 +77,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 
     /// @dev describes a roll
     struct Roll {
+         // final result of the random query
+        string result_rngseed;
         // oraclize query ids
         bytes32 query_rng;
         bytes32 query_price1;
@@ -94,8 +96,6 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         State state;
         // coin selected for this roll from the coin rotation
         CoinRotation coin;
-        // final result of the random query
-        uint8 result_rng;
         // final result of the price movement
         bool is_up;
         // mapping bettors to their bets on this roll
@@ -282,8 +282,10 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             //delete the bet from the bets mapping of this roll
             delete(roll.bets[msg.sender]);
         } else {
-            //check if user won
-            bool guessed_random = roll.result_rng < bet.value;
+            //extract the users random value by using the random source and users address
+            //this should guarantee diff results for every user even though the random seed is the same
+            uint randomNumber = uint(keccak256(abi.encodePacked(roll.result_rngseed, msg.sender))) % 100 + 1;
+            bool guessed_random = randomNumber < bet.value;
             bool guessed_pricemov = bet.is_up == roll.is_up; 
             require(guessed_random || guessed_pricemov, "No winnings to claim");
             //compute how much to pay
@@ -347,9 +349,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
                 roll.state = State.REFUND;
                 emit RollRefunded(roll_id);
             } else {
-                // proof ok, extract random number from the obtained random bytes [1 - 100]
-                uint randomNumber = uint(keccak256(bytes(_result))) % 100 + 1;
-                roll.result_rng = uint8(randomNumber);
+                // proof ok, save the bytes value
+                roll.result_rngseed = _result;
                 // increment state to show we're waiting for the next queries now
                 roll.state = State(uint(roll.state) + 1);
             }
@@ -378,7 +379,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             //add the rolls pool into contracts pool
             //from now on this amount of ETH can be withdrawn from the contract!
             pool = pool.add(roll.pool);
-            emit RollEnded(roll_id, roll.result_rng, roll.result_price1, roll.result_price2);
+            emit RollEnded(roll_id, roll.result_rngseed, roll.result_price1, roll.result_price2);
         }
     }
 
