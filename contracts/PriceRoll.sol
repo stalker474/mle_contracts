@@ -12,12 +12,12 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 //    using strings for *;
 
     /// @dev events
-    event Rolling(uint256 round);
-    event NewRoll(uint256 round);
-    event RollEnded(uint256 round, string seed, uint256 start_price, uint256 end_price);
-    event RollRefunded(uint256 round);
-    event RollClaimed(uint256 round, address indexed player, uint256 amount);
-    event BetPlaced(uint256 round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
+    event Rolling(uint256 indexed round);
+    event NewRoll(uint256 indexed round);
+    event RollEnded(uint256 indexed round, string seed, uint256 start_price, uint256 end_price);
+    event RollRefunded(uint256 indexed round);
+    event RollClaimed(uint256 indexed round, address indexed player, uint256 amount);
+    event BetPlaced(uint256 indexed round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
     event OraclizeError(uint256 value);
 
     // config
