@@ -17,7 +17,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     event RollEnded(uint256 indexed round, string seed, uint256 start_price, uint256 end_price);
     event RollRefunded(uint256 indexed round);
     event RollClaimed(uint256 indexed round, address indexed player, uint256 amount);
-    event BetPlaced(uint256 indexed round, address indexed player, uint256 amount, uint8 expected_value, bool is_up);
+    event BetPlaced(uint256 indexed round, uint256 amount, uint256 expected_value, uint256 is_up, address indexed player);
     event OraclizeError(uint256 value);
 
     // config
@@ -219,7 +219,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         //add the bet amount to the pool
         roll.pool = roll.pool.add(bet.amount);
 
-        emit BetPlaced(current_roll, msg.sender, amount, expected_value, is_up);
+        emit BetPlaced(current_roll, msg.sender, amount, expected_value, is_up? 1 : 0);
     }
 
     /**
