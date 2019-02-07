@@ -12,12 +12,12 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 //    using strings for *;
 
     /// @dev events
-    event Rolling(uint256 indexed round);
-    event NewRoll(uint256 indexed round);
-    event RollEnded(uint256 indexed round, string seed, uint256 start_price, uint256 end_price);
-    event RollRefunded(uint256 indexed round);
-    event RollClaimed(uint256 indexed round, address indexed player, uint256 amount);
-    event BetPlaced(uint256 indexed round, uint256 amount, uint256 expected_value, uint256 is_up, address indexed player);
+    event Rolling(uint256 round);
+    event NewRoll(uint256 round);
+    event RollEnded(uint256 round, uint256 start_price, uint256 end_price, bytes1 seed);
+    event RollRefunded(uint256 round);
+    event RollClaimed(uint256 round, address player, uint256 amount);
+    event BetPlaced(uint256 round, uint256 amount, address player, uint8 expected_value, uint8 is_up);
     event OraclizeError(uint256 value);
 
     // config
@@ -27,9 +27,9 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     /// @dev time before a started roll has to reach the DONE state before it can be refunded
     uint256 public config_refund_delay = 50 minutes;
     /// @dev gas limit for price callbacks
-    uint256 public config_gas_limit = 150000;
+    uint256 public config_gas_limit = 200000;
     /// @dev gas limit for random value callback
-    uint256 public config_random_gas_limit = 150000;
+    uint256 public config_random_gas_limit = 200000;
     /// @dev minimum authorized bet
     uint256 public config_min_bet = 0.02 ether;
     /// @dev maximum authorized bet
@@ -77,8 +77,6 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
 
     /// @dev describes a roll
     struct Roll {
-         // final result of the random query
-        string result_rngseed;
         // oraclize query ids
         bytes32 query_rng;
         bytes32 query_price1;
@@ -98,6 +96,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         CoinRotation coin;
         // final result of the price movement
         bool is_up;
+        // final result of the random query
+        bytes1 result_rngseed;
         // mapping bettors to their bets on this roll
         mapping(address => Bet) bets;
     }
@@ -219,7 +219,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         //add the bet amount to the pool
         roll.pool = roll.pool.add(bet.amount);
 
-        emit BetPlaced(current_roll, msg.sender, amount, expected_value, is_up? 1 : 0);
+        emit BetPlaced(current_roll, amount, msg.sender, expected_value, is_up? 1 : 0);
     }
 
     /**
@@ -350,7 +350,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
                 emit RollRefunded(roll_id);
             } else {
                 // proof ok, save the bytes value
-                roll.result_rngseed = _result;
+                roll.result_rngseed = bytes(_result)[0];
                 // increment state to show we're waiting for the next queries now
                 roll.state = State(uint(roll.state) + 1);
             }
@@ -379,7 +379,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
             //add the rolls pool into contracts pool
             //from now on this amount of ETH can be withdrawn from the contract!
             pool = pool.add(roll.pool);
-            emit RollEnded(roll_id, roll.result_rngseed, roll.result_price1, roll.result_price2);
+            emit RollEnded(roll_id, roll.result_price1, roll.result_price2, roll.result_rngseed);
         }
     }
 
