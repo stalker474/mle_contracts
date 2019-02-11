@@ -5,7 +5,7 @@ import "../openzeppelin-solidity/contracts/math/SafeMath.sol";
 import "../openzeppelin-solidity/contracts/lifecycle/Pausable.sol";
 import "../openzeppelin-solidity/contracts/ownership/Ownable.sol";
 
-contract PriceSlot is usingOraclize, Pausable, Ownable {
+contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
     using SafeMath for uint256;
 //    using strings for *;
@@ -17,12 +17,14 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
 
     // config
 
-    /// @dev time before a started roll has to reach the DONE state before it can be refunded
-    uint256 public config_refund_delay = 50 minutes;
     /// @dev gas limit for price callbacks
     uint256 public config_gas_limit = 200000;
+    /// @dev gas price for transactions
+    uint256 public config_gasprice = 20000000000 wei;
+    /// @dev amount of gas to spend on oraclize update callback
+    uint256 public config_update_gas_limit = 200000;
     /// @dev time between start and end price for the price movement bet
-    uint256 public config_pricecheck_delay = 1 minutes;
+    uint256 public config_pricecheck_delay = 5 minutes;
     uint256 public config_tier3_payout = 500; // 500/100000
     uint256 public config_tier2_payout = 50;  // 50/100000
     uint256 public config_tier1_payout = 5;   // 5/100000
@@ -33,15 +35,18 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
 
     uint256 public config_rebuy_mult = 150; //150%
     uint256 public config_rebuy_fee = 50; //50%
+
     /// @dev address to which send the house cut on withdrawal
     uint256 public config_house_cut = 5; //5%
     address payable config_cut_address = 0xA54741f7fE21689B59bD7eAcBf3A2947cd3f3BD4;
 
     /// @dev oraclize queries for ETH,BTC and LTC with encrypted api key for cryptocompare
-    string constant public query_stringLTC = "[URL] json(https://min-api.cryptocompare.com/data/price?fsym=LTC&tsyms=USD&extraParams=PriceRoll&sign=true&api_key=${[decrypt] BJEWo5a53APBrN4fYpz5xJaDzPmCLNjKdU+yMeD3p6VsMLkFRFfqIvRa+d4/qukTBbsFZqkvstMMcqoLZaShoh4HfH9XQUxL7cAtKwuAi8GCkFps0kcFmNB3EAQQvgGMX4Feaaoh40YCp5qBdKgXqLhX+BVu4x9p0uKS9XXB+Cc2qIlvagkG7y+To1bVrp1Xgg==}).USD";
+    string constant public query_stringETH = "[URL] json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD&extraParams=PriceRoll&sign=true&api_key=${[decrypt] BJEWo5a53APBrN4fYpz5xJaDzPmCLNjKdU+yMeD3p6VsMLkFRFfqIvRa+d4/qukTBbsFZqkvstMMcqoLZaShoh4HfH9XQUxL7cAtKwuAi8GCkFps0kcFmNB3EAQQvgGMX4Feaaoh40YCp5qBdKgXqLhX+BVu4x9p0uKS9XXB+Cc2qIlvagkG7y+To1bVrp1Xgg==}).USD";
   
     /// @dev used for cooldown between samples
     uint256 public latest_sample = 0;
+    /// @dev used to remember the latest received price
+    uint256 public current_price = 0;
     /// @dev total amount of collected eth by the house
     uint256 public house;
     /// @dev total amount of ETH available in pool for claiming
@@ -53,6 +58,8 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
     mapping(address => uint256) public owner_to_slot;
     /// @dev mapping to prevent processing twice the same query
     mapping(bytes32 => bool) internal _processed;
+    /// @dev mapping to detect roll callbacks
+    mapping(bytes32 => bool) internal _rolling_query;
 
     /**
         @dev init the contract
@@ -60,34 +67,27 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
     constructor() public
     Pausable()
     Ownable() {
-        //set proof only once
-        oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
     }
 
-    function newSample() external payable
+    function newSample() public
     whenNotPaused() {
         //prevent roll spamming by respecting a minimal cooldown period
         require(latest_sample + config_pricecheck_delay <= block.timestamp, "cooling down");
         //compute oraclize fees
         uint256 call_price = _checkPrice();
 
-        if(call_price > msg.value) {
+        if(call_price > address(this).balance) {
             //the caller didnt send enough for oraclize fees, just push an event and display the desired price
             emit OraclizeError(call_price);
-            //send back the eth!
-            if(msg.value > 0) {
-                msg.sender.transfer(msg.value);
-            }
         } else {
-            bytes32 queryId = oraclize_query(config_pricecheck_delay, "nested", query_stringLTC, config_gas_limit);
-
-            //send some value back if left
-            uint256 remains = msg.value.sub(call_price);
-            if(remains > 0) {
-                msg.sender.transfer(remains);
-            }
-
+            oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
+            bytes32 queryId = oraclize_query(config_pricecheck_delay, "nested", query_stringETH, config_gas_limit);
             emit SamplingPriceStarted(queryId);
+
+            //remove proof for simple call schedule
+            oraclize_setProof(proofType_NONE);
+            queryId = oraclize_query(config_pricecheck_delay, "URL", "", config_update_gas_limit);
+            _rolling_query[queryId] = true;
         }
     }
 
@@ -95,8 +95,12 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
     whenNotPaused() {
         require(precision <= 2, "maximum 2 digits precision allowed");
         uint256 slot_price = _getSlotBasePrice(precision);
+        //compute hot property modifier
+        int delta = int256(price) - int256(current_price);
+        uint256 absDelta = delta > 0? delta : -delta;
+        uint256 modif = absDelta / current_price
+        slot_price = slot_price * (current_price);
        
-
         uint256 slot_id = price;
         if (precision == 0) {
             slot_id = slot_id / 100;
@@ -174,10 +178,10 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
         require(!_processed[_queryId], "Query has already been processed!");
         _processed[_queryId] = true;
         
-        uint256 price = _stringToUintNormalize(_result);
-        uint256 tier1Slot = price / 100;
-        uint256 tier2Slot = price / 10;
-        uint256 tier3Slot = price;
+        current_price = _stringToUintNormalize(_result);
+        uint256 tier1Slot = current_price / 100;
+        uint256 tier2Slot = current_price / 10;
+        uint256 tier3Slot = current_price;
 
         //pay winners
         if (slot_to_owner[tier1Slot] != address(0)) {
@@ -206,7 +210,16 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
 
         latest_sample = block.timestamp;
 
-        emit SamplingPriceEnded(price, _result, _proof);
+        emit SamplingPriceEnded(current_price, _result, _proof);
+    }
+
+    // the callback function is called by Oraclize when the result is ready
+    function __callback(bytes32 _queryId, string memory _result) public
+    { 
+        require (msg.sender == oraclize_cbAddress(), "auth failed");
+        require(!_processed[_queryId], "Query has already been processed!");
+        _processed[_queryId] = true;
+        newSample();
     }
 
     /**
@@ -249,12 +262,34 @@ contract PriceSlot is usingOraclize, Pausable, Ownable {
     }
 
     /**
+        @dev Sets the gas sent to oraclize for callback for the scheduling
+        @param new_gaslimit Gas in wei
+    */
+    function setRollingGasLimit(uint256 new_gaslimit) external
+    onlyOwner() {
+        config_update_gas_limit = new_gaslimit;
+    }
+
+    /**
+        @dev Sets the gas price to be used by oraclize
+        @param new_gasprice Gas in wei
+    */
+    function setGasPrice(uint256 new_gasprice) external
+    onlyOwner() {
+        config_gasprice = new_gasprice;
+        oraclize_setCustomGasPrice(config_gasprice);
+    }
+
+    /**
         @dev returns current oraclize fees in Wei 
     */
     function _checkPrice() internal returns (uint256) {
-        //TLSNotary proof for URLs
+         //TLSNotary proof for URLs
         oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
-        return oraclize_getPrice("URL", config_gas_limit);
+        uint256 price = oraclize_getPrice("URL", config_gas_limit);
+        //no proof for automatic
+        oraclize_setProof(proofType_NONE);
+        return price.add(oraclize_getPrice("URL", config_update_gas_limit));
     }
 
     //ETHORSE CODE

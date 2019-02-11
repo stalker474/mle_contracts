@@ -34,6 +34,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     uint256 public config_random_gas_limit = 200000;
     /// @dev gas limit for the newRoll scheduled call
     uint256 public config_rolling_gas_limit = 700000;
+    // @dev gas price for transactions
+    uint256 public config_gasprice = 20000000000 wei;
     /// @dev minimum authorized bet
     uint256 public config_min_bet = 0.02 ether;
     /// @dev maximum authorized bet
@@ -444,6 +446,16 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         config_bonus_mult = new_bonus;
     }
 
+    /** 
+        @dev Sets the % of the pool to be used for max bet computation
+        @param new_percent Percent expressed in /100
+    */
+    function setPercentPool(uint256 new_percent) external
+    onlyOwner() {
+        require(new_percent <= 100,"max 100%");
+        config_percent_pool = new_percent;
+    }
+
     /**
         @dev Address of destination for the house edge
         @param new_desination address to send eth to
@@ -509,6 +521,16 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     function setRollingGasLimit(uint256 new_gaslimit) external
     onlyOwner() {
         config_rolling_gas_limit = new_gaslimit;
+    }
+
+    /**
+        @dev Sets the gas price to be used by oraclize
+        @param new_gasprice Gas in wei
+    */
+    function setGasPrice(uint256 new_gasprice) external
+    onlyOwner() {
+        config_gasprice = new_gasprice;
+        oraclize_setCustomGasPrice(config_gasprice);
     }
 
     /**
