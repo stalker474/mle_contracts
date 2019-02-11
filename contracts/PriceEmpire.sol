@@ -25,16 +25,18 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     uint256 public config_update_gas_limit = 200000;
     /// @dev time between start and end price for the price movement bet
     uint256 public config_pricecheck_delay = 5 minutes;
-    uint256 public config_tier3_payout = 500; // 500/100000
-    uint256 public config_tier2_payout = 50;  // 50/100000
-    uint256 public config_tier1_payout = 5;   // 5/100000
+    uint256 public config_tier3_payout = 5000; // 5000/100000
+    uint256 public config_tier2_payout = 500;  // 500/100000
+    uint256 public config_tier1_payout = 50;   // 50/100000
 
-    uint256 public config_tier3_price = 0.01 ether;
-    uint256 public config_tier2_price = 0.1 ether;
-    uint256 public config_tier1_price = 1 ether;
+    uint256 public config_tier3_price = 0.02 ether;
+    uint256 public config_tier2_price = 0.2 ether;
+    uint256 public config_tier1_price = 2 ether;
 
-    uint256 public config_rebuy_mult = 150; //150%
+    uint256 public config_rebuy_mult = 175; //175%
     uint256 public config_rebuy_fee = 50; //50%
+    uint256 public config_hotness_modifier = 15; //15/1000
+    uint256 public config_spread = 15; // 15%
 
     /// @dev address to which send the house cut on withdrawal
     uint256 public config_house_cut = 5; //5%
@@ -98,7 +100,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         //compute hot property modifier
         int delta = int256(price) - int256(current_price);
         uint256 absDelta = delta > 0? delta : -delta;
-        uint256 modif = absDelta / current_price
+        uint256 hotnessModif = absDelta / current_price / 100 * config_spread;
         slot_price = slot_price * (current_price);
        
         uint256 slot_id = price;
