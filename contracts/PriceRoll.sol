@@ -29,7 +29,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     /// @dev time before a started roll has to reach the DONE state before it can be refunded
     uint256 public config_refund_delay = 50 minutes;
     /// @dev gas limit for price callbacks
-    uint256 public config_gas_limit = 160000;
+    uint256 public config_gas_limit = 200000;
     /// @dev gas limit for random value callback
     uint256 public config_random_gas_limit = 200000;
     /// @dev gas limit for the newRoll scheduled call
