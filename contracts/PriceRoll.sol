@@ -14,18 +14,13 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     /// @dev events
     event Rolling(uint256 round);
     event NewRoll(uint256 round);
-<<<<<<< HEAD
     event RollEnded(uint256 round, uint256 start_price, uint256 end_price, bytes1 seed);
     event RollRefunded(uint256 round);
     event RollClaimed(uint256 round, address player, uint256 amount);
     event BetPlaced(uint256 round, uint256 amount, address player, uint8 expected_value, uint8 is_up);
-=======
-    event RollEnded(uint256 round, string seed, uint256 start_price, uint256 end_price);
-    event RollRefunded(uint256 round);
-    event RollClaimed(uint256 round, address player, uint256 amount);
-    event BetPlaced(uint256 round, uint256 amount, uint256 expected_value, uint256 is_up, address player);
->>>>>>> 72f6459996917f9efb2b56e26ea9b31a4a12bb5d
     event OraclizeError(uint256 value);
+    event NoPlayersError();
+
 
     // config
 
@@ -34,9 +29,11 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     /// @dev time before a started roll has to reach the DONE state before it can be refunded
     uint256 public config_refund_delay = 50 minutes;
     /// @dev gas limit for price callbacks
-    uint256 public config_gas_limit = 200000;
+    uint256 public config_gas_limit = 160000;
     /// @dev gas limit for random value callback
     uint256 public config_random_gas_limit = 200000;
+    /// @dev gas limit for the newRoll scheduled call
+    uint256 public config_rolling_gas_limit = 700000;
     /// @dev minimum authorized bet
     uint256 public config_min_bet = 0.02 ether;
     /// @dev maximum authorized bet
@@ -45,6 +42,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     uint256 public config_house_edge = 20; //2.0%
     /// @dev bonus to bettors winnings if he guesses the price movement
     uint256 public config_bonus_mult = 75; //7.5%
+    /// @dev percentage of current pool to be used to compute max bet
+    uint256 public config_percent_pool = 50; //50%
     /// @dev time between start and end price for the price movement bet
     uint256 public config_pricecheck_delay = 1 minutes;
     /// @dev address to which send the house cut on withdrawal
@@ -115,6 +114,8 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     mapping(bytes32 => uint256) internal _query_to_roll;
     /// @dev mapping to prevent processing twice the same query
     mapping(bytes32 => bool) internal _processed;
+    /// @dev mapping to detect roll callbacks
+    mapping(bytes32 => bool) internal _rolling_query;
     /// @dev internal wallet
     mapping(address => uint256) public balanceOf;
 
@@ -134,60 +135,61 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         Must be provided with enough eth for Oraclize calls (see _checkPrice())
         Cant be called when paused
     */
-    function newRoll() external payable
+    function newRoll() public
     whenNotPaused() {
         //prevent roll spamming by respecting a minimal cooldown period
         require(latest_roll + config_roll_cooldown <= block.timestamp, "roll is cooling down");
         //compute oraclize fees
         uint256 call_price = _checkPrice();
 
-        if(call_price > msg.value) {
+        if(call_price > address(this).balance) {
             //the caller didnt send enough for oraclize fees, just push an event and display the desired price
             emit OraclizeError(call_price);
-            //send back the eth!
-            if(msg.value > 0) {
-                msg.sender.transfer(msg.value);
-            }
         } else {
             //lets roll!
             Roll storage roll = rolls[current_roll]; 
-            //decide on the query to use based on the coin rotation
-            string memory query;
-            if(current_coin == CoinRotation.ETHEREUM) {
-                query = query_stringETH;
-            } else if(current_coin == CoinRotation.BITCOIN) {
-                query = query_stringBTC;
-            } else {
-                query = query_stringLTC;
-            }
-            //use special proof for price values queries
-            oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
-            //save the oraclize query indices for proof 
-            roll.query_price1 = oraclize_query(0, "nested", query, config_gas_limit);
-            roll.query_price2 = oraclize_query(config_pricecheck_delay, "nested", query, config_gas_limit);
-            //only ledger proof for random source
-            oraclize_setProof(proofType_Ledger);
-            roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_random_gas_limit);
+            //check that we have players
+            if(roll.pool > 0) {
+                //decide on the query to use based on the coin rotation
+                string memory query;
+                if(current_coin == CoinRotation.ETHEREUM) {
+                    query = query_stringETH;
+                } else if(current_coin == CoinRotation.BITCOIN) {
+                    query = query_stringBTC;
+                } else {
+                    query = query_stringLTC;
+                }
+                //use special proof for price values queries
+                oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
+                //save the oraclize query indices for proof 
+                roll.query_price1 = oraclize_query(0, "nested", query, config_gas_limit);
+                roll.query_price2 = oraclize_query(config_pricecheck_delay, "nested", query, config_gas_limit);
+                //only ledger proof for random source
+                oraclize_setProof(proofType_Ledger);
+                roll.query_rng = oraclize_newRandomDSQuery(0, 1, config_random_gas_limit);
 
+                
+                roll.timestamp = block.timestamp;
+                roll.state = State.WAITING_QUERY1;
+                roll.coin = current_coin;
+
+                //save mappings to find the right roll number associated with this query
+                _query_to_roll[roll.query_rng] = current_roll;
+                _query_to_roll[roll.query_price1] = current_roll;
+                _query_to_roll[roll.query_price2] = current_roll;
+
+                //begin new roll
+                emit Rolling(current_roll);
+
+                _generateRoll();
             
-            roll.timestamp = block.timestamp;
-            roll.state = State.WAITING_QUERY1;
-            roll.coin = current_coin;
-
-            //save mappings to find the right roll number associated with this query
-            _query_to_roll[roll.query_rng] = current_roll;
-            _query_to_roll[roll.query_price1] = current_roll;
-            _query_to_roll[roll.query_price2] = current_roll;
-
-            //begin new roll
-            emit Rolling(current_roll);
-
-            _generateRoll();
-
-            //send some value back if left
-            uint256 remains = msg.value.sub(call_price);
-            if(remains > 0) {
-                msg.sender.transfer(remains);
+                //remove proof for simple call schedule
+                oraclize_setProof(proofType_NONE);
+                bytes32 id = oraclize_query(config_roll_cooldown, "URL", "", config_rolling_gas_limit);
+                _rolling_query[id] = true;
+            } else {
+                //no players
+                emit NoPlayersError();
             }
         }
     }
@@ -220,17 +222,19 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         uint256 win = _computeRollWithEdge(bet);
         uint256 bonus = bet.amount.mul(config_bonus_mult).div(1000);
         //check that the current pool is high enough for this kind of bet
-        require(pool >= win.add(bonus),"Not enough in pool for this bet");
+        uint256 adjustedPool = pool / 100 * config_percent_pool;
+        require(adjustedPool >= win.add(bonus),"Not enough in pool for this bet");
         //remove the bet amount from the users internal wallet
         balanceOf[msg.sender] = balanceOf[msg.sender].sub(amount);
         //add the bet amount to the pool
         roll.pool = roll.pool.add(bet.amount);
 
-<<<<<<< HEAD
         emit BetPlaced(current_roll, amount, msg.sender, expected_value, is_up? 1 : 0);
-=======
-        emit BetPlaced(current_roll, amount, expected_value, is_up? 1 : 0, msg.sender);
->>>>>>> 72f6459996917f9efb2b56e26ea9b31a4a12bb5d
+
+        //if cooled down, roll now
+        if(latest_roll + config_roll_cooldown <= block.timestamp) {
+            newRoll();
+        }
     }
 
     /**
@@ -348,50 +352,65 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         require (msg.sender == oraclize_cbAddress(), "auth failed");
         require(!_processed[_queryId], "Query has already been processed!");
         _processed[_queryId] = true;
-        //fetch the roll associated with this query
-        uint256 roll_id = _query_to_roll[_queryId];
-        require(roll_id > 0, "Invalid _queryId");
-        Roll storage roll = rolls[roll_id];
-        //identify if this is a query for random value, or prices check
-        if(_queryId == roll.query_rng) {
-            //verify proof of random on chain
-            if (oraclize_randomDS_proofVerify__returnCode(_queryId, _result, _proof) != 0) {
-                // the proof verification has failed, the roll goes to refund
-                roll.state = State.REFUND;
-                emit RollRefunded(roll_id);
-            } else {
-                // proof ok, save the bytes value
-                roll.result_rngseed = bytes(_result)[0];
+
+        if (_rolling_query[_queryId]) {
+            newRoll();
+        } else {
+            //fetch the roll associated with this query
+            uint256 roll_id = _query_to_roll[_queryId];
+            require(roll_id > 0, "Invalid _queryId");
+            Roll storage roll = rolls[roll_id];
+            //identify if this is a query for random value, or prices check
+            if(_queryId == roll.query_rng) {
+                //verify proof of random on chain
+                if (oraclize_randomDS_proofVerify__returnCode(_queryId, _result, _proof) != 0) {
+                    // the proof verification has failed, the roll goes to refund
+                    roll.state = State.REFUND;
+                    emit RollRefunded(roll_id);
+                } else {
+                    // proof ok, save the bytes value
+                    roll.result_rngseed = bytes(_result)[0];
+                    // increment state to show we're waiting for the next queries now
+                    roll.state = State(uint(roll.state) + 1);
+                }
+            } else if(_queryId == roll.query_price1) {
+                //parse the result string for the precision normalized value
+                roll.result_price1 = _stringToUintNormalize(_result);
+                //(roll.result_price1, roll.result_timestamp1) = _extract(_result);
                 // increment state to show we're waiting for the next queries now
                 roll.state = State(uint(roll.state) + 1);
-            }
-        } else if(_queryId == roll.query_price1) {
-            //parse the result string for the precision normalized value
-            roll.result_price1 = _stringToUintNormalize(_result);
-            //(roll.result_price1, roll.result_timestamp1) = _extract(_result);
-            // increment state to show we're waiting for the next queries now
-            roll.state = State(uint(roll.state) + 1);
-        } else if(_queryId == roll.query_price2) {
-            //parse the result string for the precision normalized value
-            roll.result_price2 = _stringToUintNormalize(_result);
-            //(roll.result_price2, roll.result_timestamp2) = _extract(_result);
-            // increment state to show we're waiting for the next queries now
-            roll.state = State(uint(roll.state) + 1);
-        } else {
+            } else if(_queryId == roll.query_price2) {
+                //parse the result string for the precision normalized value
+                roll.result_price2 = _stringToUintNormalize(_result);
+                //(roll.result_price2, roll.result_timestamp2) = _extract(_result);
+                // increment state to show we're waiting for the next queries now
+                roll.state = State(uint(roll.state) + 1);
+            } else {
 
-            //fatal error
-            roll.state = State.REFUND;
-            emit RollRefunded(roll_id);
+                //fatal error
+                roll.state = State.REFUND;
+                emit RollRefunded(roll_id);
+            }
+            //if the roll state has been incremented enough (3 times), we've finished
+            if(roll.state == State.DONE) {
+                //check price change
+                roll.is_up = roll.result_price1 < roll.result_price2;
+                //add the rolls pool into contracts pool
+                //from now on this amount of ETH can be withdrawn from the contract!
+                pool = pool.add(roll.pool);
+                emit RollEnded(roll_id, roll.result_price1, roll.result_price2, roll.result_rngseed);
+            }
         }
-        //if the roll state has been incremented enough (3 times), we've finished
-        if(roll.state == State.DONE) {
-            //check price change
-            roll.is_up = roll.result_price1 < roll.result_price2;
-            //add the rolls pool into contracts pool
-            //from now on this amount of ETH can be withdrawn from the contract!
-            pool = pool.add(roll.pool);
-            emit RollEnded(roll_id, roll.result_price1, roll.result_price2, roll.result_rngseed);
-        }
+        
+    }
+
+    // the callback function is called by Oraclize when the result is ready
+    function __callback(bytes32 _queryId, string memory _result) public
+    { 
+        require (msg.sender == oraclize_cbAddress(), "auth failed");
+        require(!_processed[_queryId], "Query has already been processed!");
+        _processed[_queryId] = true;
+        newRoll();
     }
 
     /**
@@ -484,6 +503,15 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     }
 
     /**
+        @dev Sets the gas sent to oraclize for callback for the rolling scheduling
+        @param new_gaslimit Gas in wei
+    */
+    function setRollingGasLimit(uint256 new_gaslimit) external
+    onlyOwner() {
+        config_rolling_gas_limit = new_gaslimit;
+    }
+
+    /**
         @dev Sets the delay between oraclize price request calls
         @param new_delay Delay in seconds
     */
@@ -513,7 +541,10 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
         oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
         uint256 call_price = oraclize_getPrice("URL", config_gas_limit) * 2; //2 calls
         oraclize_setProof(proofType_Ledger);
-        return call_price.add(oraclize_getPrice("Random", config_random_gas_limit)); //1 call
+        call_price = call_price.add(oraclize_getPrice("Random", config_random_gas_limit)); //1 call
+
+        oraclize_setProof(proofType_NONE);
+        return call_price.add(oraclize_getPrice("URL", config_rolling_gas_limit)); //1 call
     }
 
      /**
