@@ -14,6 +14,10 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     event SamplingPriceStarted(bytes32 query_id);
     event SamplingPriceEnded(uint256 price, string result, bytes proof);
     event OraclizeError(uint256 value);
+    event SlotPurchased(uint256 price, uint8 tier, address from, address by);
+    event SlotAbandoned(uint256 price, uint8 tier, address by);
+
+    uint256 constant PRECISION = 1000000;
 
     // config
 
@@ -24,22 +28,24 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     /// @dev amount of gas to spend on oraclize update callback
     uint256 public config_update_gas_limit = 200000;
     /// @dev time between start and end price for the price movement bet
-    uint256 public config_pricecheck_delay = 5 minutes;
-    uint256 public config_tier3_payout = 5000; // 5000/100000
-    uint256 public config_tier2_payout = 500;  // 500/100000
-    uint256 public config_tier1_payout = 50;   // 50/100000
+    uint256 public config_pricecheck_delay = 2 minutes;
+
+    uint256 public config_tier3_payout = 5000; // 5000/PRECISION
+    uint256 public config_tier2_payout = 500;  // 500/PRECISION
+    uint256 public config_tier1_payout = 50;   // 50/PRECISION
 
     uint256 public config_tier3_price = 0.02 ether;
     uint256 public config_tier2_price = 0.2 ether;
     uint256 public config_tier1_price = 2 ether;
 
-    uint256 public config_rebuy_mult = 175; //175%
-    uint256 public config_rebuy_fee = 50; //50%
-    uint256 public config_hotness_modifier = 15; //15/1000
-    uint256 public config_spread = 15; // 15%
+    uint256 public config_rebuy_mult = 1750000; //175%
+    uint256 public config_rebuy_fee = 500000; //50%
+    uint256 public config_hotness_modifier = 1500000;//150%
+    uint256 public config_spread = 150000; // 15%
+    uint256 public config_min_hotness_ratio = 300000; //30%
 
     /// @dev address to which send the house cut on withdrawal
-    uint256 public config_house_cut = 5; //5%
+    uint256 public config_house_cut = 50000; //5%
     address payable config_cut_address = 0xA54741f7fE21689B59bD7eAcBf3A2947cd3f3BD4;
 
     /// @dev oraclize queries for ETH,BTC and LTC with encrypted api key for cryptocompare
@@ -49,15 +55,20 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     uint256 public latest_sample = 0;
     /// @dev used to remember the latest received price
     uint256 public current_price = 0;
+    /// @dev used to compute the amount of bocks since last update
+    uint256 public latest_blockheight = 0;
     /// @dev total amount of collected eth by the house
     uint256 public house;
     /// @dev total amount of ETH available in pool for claiming
     uint256 public pool;
 
     mapping(address => uint256) public balanceOf;
+    mapping(address => uint256) public resell_tickets;
 
     mapping(uint256 => address payable) public slot_to_owner;
-    mapping(address => uint256) public owner_to_slot;
+    mapping(uint256 => uint256) public slot_to_price;
+    mapping(uint256 => uint256) public slot_to_earnings;
+
     /// @dev mapping to prevent processing twice the same query
     mapping(bytes32 => bool) internal _processed;
     /// @dev mapping to detect roll callbacks
@@ -69,6 +80,9 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     constructor() public
     Pausable()
     Ownable() {
+        latest_sample = block.timestamp;
+        latest_blockheight = block.number;
+         oraclize_setCustomGasPrice(config_gasprice);
     }
 
     function newSample() public
@@ -93,59 +107,41 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         }
     }
 
-    function buySlot(uint256 price, uint8 precision) external payable
-    whenNotPaused() {
-        require(precision <= 2, "maximum 2 digits precision allowed");
-        uint256 slot_price = _getSlotBasePrice(precision);
-        //compute hot property modifier
-        int delta = int256(price) - int256(current_price);
-        uint256 absDelta = delta > 0? delta : -delta;
-        uint256 hotnessModif = absDelta / current_price / 100 * config_spread;
-        slot_price = slot_price * (current_price);
-       
-        uint256 slot_id = price;
-        if (precision == 0) {
-            slot_id = slot_id / 100;
-        } else if(precision == 1) {
-             slot_id = slot_id / 10;
+    function buySlots(uint256[] calldata prices, uint8[] calldata tiers) external payable
+    {
+        require(prices.length == tiers.length,"Invalid input");
+        require(prices.length <= 10, "Maximum 10 slots at a time");
+        uint256 total_price = 0;
+        for(uint8 i = 0; i < prices.length; i++) {
+            total_price.add(_buySlot(prices[i],tiers[i]));
         }
-        address payable original_owner = slot_to_owner[slot_id];
-        if(original_owner == address(0)) {
-            //this slot is available for purchase
-             require(msg.value >= slot_price,"Not enough ETH sent");
-             uint256 house_fee = slot_price / 100 * config_house_cut;
-             pool = pool.add(msg.value.sub(house_fee));
-             house = house.add(house_fee);
-            
-        } else {
-            //this slot belongs to someone
-            //apply buy majoration
-            uint256 slot_price_rebuy = slot_price / 100 * config_rebuy_mult;
-            require(msg.value >= slot_price_rebuy,"Not enough ETH sent");
-            uint256 owner_fee = slot_price_rebuy.sub(slot_price) /100 * config_rebuy_fee;
-            if(!original_owner.send(owner_fee)) {
-                balanceOf[original_owner] = balanceOf[original_owner].add(owner_fee);
-            }
 
-            uint256 house_fee = slot_price_rebuy / 100 * config_house_cut;
-            pool = pool.add(slot_price_rebuy.sub(house_fee).sub(owner_fee));
-            house = house.add(house_fee);
-        }
-        //send some value back if left
-        uint256 remains = msg.value.sub(slot_price);
-        if(remains > 0) {
-            msg.sender.transfer(remains);
-        }
+        require(msg.value >= total_price,"Not enough funds");
     }
 
-    function _getSlotBasePrice(uint8 precision) internal view returns (uint256) {
-        require(precision <= 2, "maximum 2 digits precision allowed");
-        if(precision == 2) {
-            return config_tier3_price;
-        } else if(precision == 1) {
-            return config_tier2_price;
-        } else {
-            return config_tier1_price;
+    function sellSlots(uint256[] calldata prices, uint8[] calldata tiers) external
+    {
+        require(prices.length == tiers.length,"Invalid input");
+        require(prices.length <= 10, "Maximum 10 slots at a time");
+        uint256 total_price = 0;
+        uint256 total_properties_req = 0;
+        for(uint8 i = 0; i < prices.length; i++) {
+            uint256 slot_id = uint256(keccak256(abi.encodePacked(prices[i], tiers[i])));
+            require(slot_to_owner[slot_id] == msg.sender,"Not all slots are yours");
+            total_price = total_price.add(slot_to_price[slot_id]);
+            total_properties_req = total_properties_req.add(_getSlotResellTickets(tiers[i]));
+            delete(slot_to_price[slot_id]);
+            delete(slot_to_owner[slot_id]);
+
+            emit SlotAbandoned(prices[i], tiers[i], msg.sender);
+        }
+        pool = pool.sub(total_price);
+
+        require(resell_tickets[msg.sender] >= total_properties_req, "Not enough resell tickets");
+        resell_tickets[msg.sender] = resell_tickets[msg.sender].sub(total_properties_req);
+
+        if(!msg.sender.send(total_price)) {
+            balanceOf[msg.sender] = balanceOf[msg.sender].add(total_price);
         }
     }
 
@@ -181,36 +177,28 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         _processed[_queryId] = true;
         
         current_price = _stringToUintNormalize(_result);
-        uint256 tier1Slot = current_price / 100;
-        uint256 tier2Slot = current_price / 10;
-        uint256 tier3Slot = current_price;
+
+        uint256 elapsed_blocks = block.number - latest_blockheight;
 
         //pay winners
-        if (slot_to_owner[tier1Slot] != address(0)) {
-            //this slot is owned by someone
-            uint256 payout = pool.div(100000).mul(config_tier1_payout);
-            if(!slot_to_owner[tier1Slot].send(payout)) {
-                balanceOf[slot_to_owner[tier1Slot]] = balanceOf[slot_to_owner[tier1Slot]].add(payout);
-            }
-        }
 
-        if (slot_to_owner[tier2Slot] != address(0)) {
-            //this slot is owned by someone
-            uint256 payout = pool.div(100000).mul(config_tier2_payout);
-            if(!slot_to_owner[tier2Slot].send(payout)) {
-                balanceOf[slot_to_owner[tier2Slot]] = balanceOf[slot_to_owner[tier2Slot]].add(payout);
-            }
-        }
+        for(uint8 i = 0; i < 3; i++) {
+            uint256 slot_id_tier = uint256(keccak256(abi.encodePacked(current_price, i)));
+            uint256 tierPayout = _getSlotPayout(i);
+            uint256 payout = pool * (tierPayout / PRECISION) * elapsed_blocks;
+            slot_to_earnings[slot_id_tier] = slot_to_earnings[slot_id_tier].add(payout);
 
-        if (slot_to_owner[tier3Slot] != address(0)) {
-            //this slot is owned by someone
-            uint256 payout = pool.div(100000).mul(config_tier3_payout);
-            if(!slot_to_owner[tier3Slot].send(payout)) {
-                balanceOf[slot_to_owner[tier3Slot]] = balanceOf[slot_to_owner[tier3Slot]].add(payout);
+            if (slot_to_owner[slot_id_tier] != address(0)) {
+                //this slot is owned by someone
+                
+                if(!slot_to_owner[slot_id_tier].send(payout)) {
+                    balanceOf[slot_to_owner[slot_id_tier]] = balanceOf[slot_to_owner[slot_id_tier]].add(payout);
+                }
             }
         }
 
         latest_sample = block.timestamp;
+        latest_blockheight = block.number;
 
         emit SamplingPriceEnded(current_price, _result, _proof);
     }
@@ -292,6 +280,92 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         //no proof for automatic
         oraclize_setProof(proofType_NONE);
         return price.add(oraclize_getPrice("URL", config_update_gas_limit));
+    }
+
+    function _buySlot(uint256 price, uint8 tier) internal
+    whenNotPaused() returns (uint256) {
+        require(tier <= 2, "maximum 2 digits precision allowed");
+       
+        uint256 slot_id = uint256(keccak256(abi.encodePacked(price, tier)));
+       
+        uint256 final_buy_price = 0;
+
+        uint256 tickets = _getSlotResellTickets(tier);
+        address from = address(0);
+
+        if(slot_to_price[slot_id] == 0) {
+            //this slot is available for purchase
+            uint256 slot_price = _getSlotBasePrice(tier);
+            //compute hot property modifier
+            int delta = int256(price) - int256(current_price);
+            uint256 absDelta = uint256(delta > 0? delta : -delta);
+            uint256 hotnessRatio = (1.0-(absDelta / current_price) / (config_spread / PRECISION)) * PRECISION;
+            //clamp hotness ratio
+            if(hotnessRatio < config_min_hotness_ratio) {
+                hotnessRatio = config_min_hotness_ratio;
+            }
+            uint256 hotnessModif = slot_price * (config_hotness_modifier / PRECISION) * (hotnessRatio / PRECISION);
+            final_buy_price = slot_price.add(hotnessModif);
+        } else {
+            //this slot belongs to someone
+            //apply buy majoration
+            uint256 purchase_price = slot_to_price[slot_id];
+            final_buy_price = slot_to_price[slot_id]  * (config_rebuy_mult /  PRECISION);
+
+            uint256 owner_fee = final_buy_price.sub(purchase_price) * (config_rebuy_fee / PRECISION);
+            //send to owner his due
+            address payable original_owner = slot_to_owner[slot_id];
+            from = original_owner;
+            resell_tickets[original_owner] = resell_tickets[original_owner].sub(tickets);
+            if(!original_owner.send(purchase_price.add(owner_fee))) {
+                balanceOf[original_owner] = balanceOf[original_owner].add(purchase_price.add(owner_fee));
+            }
+        }
+
+        uint256 house_fee = final_buy_price * (config_house_cut / PRECISION);
+        pool = pool.add(final_buy_price.sub(house_fee));
+        house = house.add(house_fee);
+        slot_to_price[slot_id] = final_buy_price;
+        slot_to_owner[slot_id] = msg.sender;
+
+        resell_tickets[msg.sender] = resell_tickets[msg.sender].add(tickets);
+
+        emit SlotPurchased(price, tier, from, msg.sender);
+
+        return final_buy_price;
+    }
+
+    function _getSlotBasePrice(uint8 tier) internal view returns (uint256) {
+        require(tier <= 2, "maximum 2 digits precision allowed");
+        if(tier == 2) {
+            return config_tier3_price;
+        } else if(tier == 1) {
+            return config_tier2_price;
+        } else {
+            return config_tier1_price;
+        }
+    }
+
+    function _getSlotPayout(uint8 tier) internal view returns (uint256) {
+        require(tier <= 2, "maximum 2 digits precision allowed");
+        if(tier == 2) {
+            return config_tier3_payout;
+        } else if(tier == 1) {
+            return config_tier2_payout;
+        } else {
+            return config_tier1_payout;
+        }
+    }
+
+    function _getSlotResellTickets(uint8 tier) internal view returns (uint256) {
+        require(tier <= 2, "maximum 2 digits precision allowed");
+        if(tier == 2) {
+            return 1;
+        } else if(tier == 1) {
+            return 10;
+        } else {
+            return 100;
+        }
     }
 
     //ETHORSE CODE
