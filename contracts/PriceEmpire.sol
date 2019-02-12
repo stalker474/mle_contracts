@@ -285,6 +285,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     function _buySlot(uint256 price, uint8 tier) internal
     whenNotPaused() returns (uint256) {
         require(tier <= 2, "maximum 2 digits precision allowed");
+        require(current_price != 0,"Game hasnt started yet");
        
         uint256 slot_id = uint256(keccak256(abi.encodePacked(price, tier)));
        
@@ -299,6 +300,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             //compute hot property modifier
             int delta = int256(price) - int256(current_price);
             uint256 absDelta = uint256(delta > 0? delta : -delta);
+            require(absDelta / current_price <= (config_spread / PRECISION), "Cant buy this property yet");
             uint256 hotnessRatio = (1.0-(absDelta / current_price) / (config_spread / PRECISION)) * PRECISION;
             //clamp hotness ratio
             if(hotnessRatio < config_min_hotness_ratio) {
