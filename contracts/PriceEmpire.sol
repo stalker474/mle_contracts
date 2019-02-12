@@ -26,7 +26,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     /// @dev gas price for transactions
     uint256 public config_gasprice = 20000000000 wei;
     /// @dev amount of gas to spend on oraclize update callback
-    uint256 public config_update_gas_limit = 200000;
+    uint256 public config_update_gas_limit = 300000;
     /// @dev time between start and end price for the price movement bet
     uint256 public config_pricecheck_delay = 2 minutes;
 
