@@ -40,6 +40,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
     uint256 public config_rebuy_mult = 1750000; //175%
     uint256 public config_rebuy_fee = 500000; //50%
+    uint256 public config_resell_fee = 100000; //10%
     uint256 public config_hotness_modifier = 1500000;//150%
     uint256 public config_spread = 150000; // 15%
     uint256 public config_min_hotness_ratio = 300000; //30%
@@ -63,6 +64,8 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     uint256 public pool;
 
     mapping(address => uint256) public balanceOf;
+    mapping(address => uint256) public profitOf;
+    mapping(address => uint256) public capitalOf;
     mapping(address => uint256) public resell_tickets;
 
     mapping(uint256 => address payable) public slot_to_owner;
@@ -115,7 +118,6 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         for(uint8 i = 0; i < prices.length; i++) {
             total_price.add(_buySlot(prices[i],tiers[i]));
         }
-
         require(msg.value >= total_price,"Not enough funds");
     }
 
@@ -124,11 +126,13 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         require(prices.length == tiers.length,"Invalid input");
         require(prices.length <= 10, "Maximum 10 slots at a time");
         uint256 total_price = 0;
+        uint256 resell_fee = 0;
         uint256 total_properties_req = 0;
         for(uint8 i = 0; i < prices.length; i++) {
             uint256 slot_id = uint256(keccak256(abi.encodePacked(prices[i], tiers[i])));
             require(slot_to_owner[slot_id] == msg.sender,"Not all slots are yours");
             total_price = total_price.add(slot_to_price[slot_id]);
+            resell_fee = slot_to_price[slot_id] * (config_resell_fee / PRECISION);
             total_properties_req = total_properties_req.add(_getSlotResellTickets(tiers[i]));
             delete(slot_to_price[slot_id]);
             delete(slot_to_owner[slot_id]);
@@ -136,12 +140,14 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             emit SlotAbandoned(prices[i], tiers[i], msg.sender);
         }
         pool = pool.sub(total_price);
+        capitalOf[msg.sender] = capitalOf[msg.sender].sub(total_price);
 
-        require(resell_tickets[msg.sender] >= total_properties_req, "Not enough resell tickets");
-        resell_tickets[msg.sender] = resell_tickets[msg.sender].sub(total_properties_req);
+        require(resell_tickets[msg.sender] >= total_properties_req.mul(2), "Not enough resell tickets");
+        resell_tickets[msg.sender] = resell_tickets[msg.sender].sub(total_properties_req.mul(2));
 
-        if(!msg.sender.send(total_price)) {
-            balanceOf[msg.sender] = balanceOf[msg.sender].add(total_price);
+        uint256 to_pay = total_price.sub(resell_fee);
+        if(!msg.sender.send(to_pay)) {
+            balanceOf[msg.sender] = balanceOf[msg.sender].add(to_pay);
         }
     }
 
@@ -190,7 +196,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
             if (slot_to_owner[slot_id_tier] != address(0)) {
                 //this slot is owned by someone
-                
+                profitOf[slot_to_owner[slot_id_tier]] = profitOf[slot_to_owner[slot_id_tier]].add(payout);
                 if(!slot_to_owner[slot_id_tier].send(payout)) {
                     balanceOf[slot_to_owner[slot_id_tier]] = balanceOf[slot_to_owner[slot_id_tier]].add(payout);
                 }
@@ -318,17 +324,28 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             //send to owner his due
             address payable original_owner = slot_to_owner[slot_id];
             from = original_owner;
-            resell_tickets[original_owner] = resell_tickets[original_owner].sub(tickets);
+
+            if(resell_tickets[original_owner] > tickets) {
+                resell_tickets[original_owner] = resell_tickets[original_owner].sub(tickets);
+            } else if(resell_tickets[original_owner] > 0) {
+                resell_tickets[original_owner] = 0;
+            }
+            
+            profitOf[original_owner] = profitOf[original_owner].add(owner_fee);
+
             if(!original_owner.send(purchase_price.add(owner_fee))) {
                 balanceOf[original_owner] = balanceOf[original_owner].add(purchase_price.add(owner_fee));
             }
         }
 
         uint256 house_fee = final_buy_price * (config_house_cut / PRECISION);
-        pool = pool.add(final_buy_price.sub(house_fee));
+        uint256 estate_price = final_buy_price.sub(house_fee);
+        pool = pool.add(estate_price);
         house = house.add(house_fee);
-        slot_to_price[slot_id] = final_buy_price;
+        
+        slot_to_price[slot_id] = estate_price;
         slot_to_owner[slot_id] = msg.sender;
+        capitalOf[msg.sender] = capitalOf[msg.sender].add(estate_price);
 
         resell_tickets[msg.sender] = resell_tickets[msg.sender].add(tickets);
 
