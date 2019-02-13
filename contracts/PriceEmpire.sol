@@ -129,7 +129,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 resell_fee = 0;
         uint256 total_properties_req = 0;
         for(uint8 i = 0; i < prices.length; i++) {
-            uint256 slot_id = uint256(keccak256(abi.encodePacked(prices[i], tiers[i])));
+            uint256 slot_id = _getSlotId(prices[i], tiers[i]);
             require(slot_to_owner[slot_id] == msg.sender,"Not all slots are yours");
             total_price = total_price.add(slot_to_price[slot_id]);
             resell_fee = slot_to_price[slot_id] * (config_resell_fee / PRECISION);
@@ -189,7 +189,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         //pay winners
 
         for(uint8 i = 0; i < 3; i++) {
-            uint256 slot_id_tier = uint256(keccak256(abi.encodePacked(current_price, i)));
+            uint256 slot_id_tier = _getSlotId(current_price, i);
             uint256 tierPayout = _getSlotPayout(i);
             uint256 payout = pool * (tierPayout / PRECISION) * elapsed_blocks;
             slot_to_earnings[slot_id_tier] = slot_to_earnings[slot_id_tier].add(payout);
@@ -292,8 +292,9 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     whenNotPaused() returns (uint256) {
         require(tier <= 2, "maximum 2 digits precision allowed");
         require(current_price != 0,"Game hasnt started yet");
+        
        
-        uint256 slot_id = uint256(keccak256(abi.encodePacked(price, tier)));
+        uint256 slot_id = _getSlotId(price, tier);
        
         uint256 final_buy_price = 0;
 
@@ -352,6 +353,17 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         emit SlotPurchased(price, tier, from, msg.sender);
 
         return final_buy_price;
+    }
+
+    function _getSlotId(uint256 price, uint8 tier) internal returns (uint256) {
+        //trim the price based on tier to prevent multiple slots of same price being a city
+        //example a tier 0 must end with "00" and a tier 1 with "0"
+        if(tier == 0)
+            price = uint256(price / 100) * 100;
+        else if(tier == 1)
+            price = uint256(price / 10) * 10;
+
+        return uint256(keccak256(abi.encodePacked(price, tier)));
     }
 
     function _getSlotBasePrice(uint8 tier) internal view returns (uint256) {
