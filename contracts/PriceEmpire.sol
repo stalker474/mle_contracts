@@ -107,6 +107,8 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             oraclize_setProof(proofType_NONE);
             queryId = oraclize_query(config_pricecheck_delay, "URL", "", config_update_gas_limit);
             _rolling_query[queryId] = true;
+
+            pool = pool.sub(call_price);
         }
     }
 
@@ -132,7 +134,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             uint256 slot_id = _getSlotId(prices[i], tiers[i]);
             require(slot_to_owner[slot_id] == msg.sender,"Not all slots are yours");
             total_price = total_price.add(slot_to_price[slot_id]);
-            resell_fee = slot_to_price[slot_id] * (config_resell_fee / PRECISION);
+            resell_fee = slot_to_price[slot_id].mul(config_resell_fee).div(PRECISION);
             total_properties_req = total_properties_req.add(_getSlotResellTickets(tiers[i]));
             delete(slot_to_price[slot_id]);
             delete(slot_to_owner[slot_id]);
@@ -191,11 +193,12 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         for(uint8 i = 0; i < 3; i++) {
             uint256 slot_id_tier = _getSlotId(current_price, i);
             uint256 tierPayout = _getSlotPayout(i);
-            uint256 payout = pool * (tierPayout / PRECISION) * elapsed_blocks;
+            uint256 payout = pool.mul(tierPayout).mul(elapsed_blocks).div(PRECISION);
             slot_to_earnings[slot_id_tier] = slot_to_earnings[slot_id_tier].add(payout);
 
             if (slot_to_owner[slot_id_tier] != address(0)) {
                 //this slot is owned by someone
+                pool = pool.sub(payout);
                 profitOf[slot_to_owner[slot_id_tier]] = profitOf[slot_to_owner[slot_id_tier]].add(payout);
                 if(!slot_to_owner[slot_id_tier].send(payout)) {
                     balanceOf[slot_to_owner[slot_id_tier]] = balanceOf[slot_to_owner[slot_id_tier]].add(payout);
@@ -279,8 +282,8 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     function getTier1Data() external view returns (uint256[] memory, bytes32[] memory, uint256[] memory, uint256[] memory) {
         uint256 spread = config_spread / 2;
         uint256 tier_price = current_price / 100;
-        uint256 max = tier_price.mul(PRECISION + spread).div(PRECISION);
-        uint256 min = tier_price.mul(PRECISION - spread).div(PRECISION);
+        uint256 max = tier_price.mul(PRECISION.add(spread)).div(PRECISION);
+        uint256 min = tier_price.mul(PRECISION.sub(spread)).div(PRECISION);
         uint256 size = max - min;
         
         uint256[] memory index_data = new uint256[](size);
@@ -329,21 +332,22 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             //compute hot property modifier
             int delta = int256(price) - int256(current_price);
             uint256 absDelta = uint256(delta > 0? delta : -delta);
-            require(absDelta / current_price <= (config_spread / PRECISION), "Cant buy this property yet");
-            uint256 hotnessRatio = (1.0-(absDelta / current_price) / (config_spread / PRECISION)) * PRECISION;
+            require(absDelta.mul(PRECISION).div(current_price) <= config_spread / 2, "Cant buy this property yet");
+
+            uint256 hotnessRatio = PRECISION.sub(absDelta.mul(PRECISION).div(current_price)).div(config_spread);
             //clamp hotness ratio
             if(hotnessRatio < config_min_hotness_ratio) {
                 hotnessRatio = config_min_hotness_ratio;
             }
-            uint256 hotnessModif = slot_price * (config_hotness_modifier / PRECISION) * (hotnessRatio / PRECISION);
+            uint256 hotnessModif = slot_price.mul(config_hotness_modifier).mul(hotnessRatio).div(PRECISION);
             final_buy_price = slot_price.add(hotnessModif);
         } else {
             //this slot belongs to someone
             //apply buy majoration
             uint256 purchase_price = slot_to_price[slot_id];
-            final_buy_price = slot_to_price[slot_id]  * (config_rebuy_mult /  PRECISION);
+            final_buy_price = slot_to_price[slot_id].mul(config_rebuy_mult).div(PRECISION);
 
-            uint256 owner_fee = final_buy_price.sub(purchase_price) * (config_rebuy_fee / PRECISION);
+            uint256 owner_fee = final_buy_price.sub(purchase_price).mul(config_rebuy_fee).div(PRECISION);
             //send to owner his due
             address payable original_owner = slot_to_owner[slot_id];
             from = original_owner;
@@ -361,7 +365,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             }
         }
 
-        uint256 house_fee = final_buy_price * (config_house_cut / PRECISION);
+        uint256 house_fee = final_buy_price.mul(config_house_cut).div(PRECISION);
         uint256 estate_price = final_buy_price.sub(house_fee);
         pool = pool.add(estate_price);
         house = house.add(house_fee);
@@ -381,9 +385,9 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         //trim the price based on tier to prevent multiple slots of same price being a city
         //example a tier 0 must end with "00" and a tier 1 with "0"
         if(tier == 0)
-            price = uint256(price / 100) * 100;
+            price = price.div(100).mul(100);
         else if(tier == 1)
-            price = uint256(price / 10) * 10;
+            price = price.div(10).mul(10);
 
         return uint256(keccak256(abi.encodePacked(price, tier)));
     }
