@@ -291,7 +291,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256[] memory earnings_data = new uint256[](size);
         uint256[] memory price_data = new uint256[](size);
         
-        for(uint i = min; i < max; i++) {
+        for(uint i = min; i <= max; i++) {
             uint256 id = _getSlotId(i*100,0);
             index_data[i-min] = i;
             id_data[i-min] = bytes32(id);
