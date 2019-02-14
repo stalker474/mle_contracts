@@ -355,7 +355,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         return final_buy_price;
     }
 
-    function _getSlotId(uint256 price, uint8 tier) internal returns (uint256) {
+    function _getSlotId(uint256 price, uint8 tier) internal pure returns (uint256) {
         //trim the price based on tier to prevent multiple slots of same price being a city
         //example a tier 0 must end with "00" and a tier 1 with "0"
         if(tier == 0)
@@ -388,7 +388,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         }
     }
 
-    function _getSlotResellTickets(uint8 tier) internal view returns (uint256) {
+    function _getSlotResellTickets(uint8 tier) internal pure returns (uint256) {
         require(tier <= 2, "maximum 2 digits precision allowed");
         if(tier == 2) {
             return 1;
