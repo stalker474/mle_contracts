@@ -407,7 +407,7 @@ contract PriceRoll is usingOraclize, Pausable, Ownable {
     }
 
     // the callback function is called by Oraclize when the result is ready
-    function __callback(bytes32 _queryId, string memory _result) public
+    function __callback(bytes32 _queryId, string memory) public
     { 
         require (msg.sender == oraclize_cbAddress(), "auth failed");
         require(!_processed[_queryId], "Query has already been processed!");

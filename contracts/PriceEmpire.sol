@@ -210,7 +210,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     }
 
     // the callback function is called by Oraclize when the result is ready
-    function __callback(bytes32 _queryId, string memory _result) public
+    function __callback(bytes32 _queryId, string memory) public
     { 
         require (msg.sender == oraclize_cbAddress(), "auth failed");
         require(!_processed[_queryId], "Query has already been processed!");
@@ -274,6 +274,28 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     onlyOwner() {
         config_gasprice = new_gasprice;
         oraclize_setCustomGasPrice(config_gasprice);
+    }
+
+    function getTier1Data() external view returns (uint256[] memory, bytes32[] memory, uint256[] memory, uint256[] memory) {
+        uint256 spread = config_spread / 2;
+        uint256 tier_price = current_price / 100;
+        uint256 max = tier_price.mul(PRECISION + spread).div(PRECISION);
+        uint256 min = tier_price.mul(PRECISION - spread).div(PRECISION);
+        uint256 size = max - min;
+        
+        uint256[] memory index_data = new uint256[](size);
+        bytes32[] memory id_data = new bytes32[](size);
+        uint256[] memory earnings_data = new uint256[](size);
+        uint256[] memory price_data = new uint256[](size);
+        
+        for(uint i = min; i < max; i++) {
+            uint256 id = _getSlotId(i*100,0);
+            index_data[i-min] = i;
+            id_data[i-min] = bytes32(id);
+            earnings_data[i-min] = slot_to_earnings[id];
+            price_data[i-min] = slot_to_price[id];
+        }
+        return (index_data, id_data, earnings_data, price_data);
     }
 
     /**
