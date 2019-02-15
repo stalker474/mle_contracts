@@ -198,6 +198,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
             if (slot_to_owner[slot_id_tier] != address(0)) {
                 //this slot is owned by someone
+                require(pool >= payout,"Not enough funds to pay");
                 pool = pool.sub(payout);
                 profitOf[slot_to_owner[slot_id_tier]] = profitOf[slot_to_owner[slot_id_tier]].add(payout);
                 if(!slot_to_owner[slot_id_tier].send(payout)) {
@@ -279,7 +280,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         oraclize_setCustomGasPrice(config_gasprice);
     }
 
-    function getTier1Data() external view returns (uint256[] memory, bytes32[] memory, uint256[] memory, uint256[] memory) {
+    function getTier1Data() external view returns (uint256[] memory, uint256[] memory, uint256[] memory) {
         uint256 spread = config_spread / 2;
         uint256 tier_price = current_price / 100;
         uint256 max = tier_price.mul(PRECISION.add(spread)).div(PRECISION);
@@ -287,18 +288,34 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 size = max - min;
         
         uint256[] memory index_data = new uint256[](size);
-        bytes32[] memory id_data = new bytes32[](size);
         uint256[] memory earnings_data = new uint256[](size);
         uint256[] memory price_data = new uint256[](size);
         
         for(uint i = min; i <= max; i++) {
             uint256 id = _getSlotId(i*100,0);
             index_data[i-min] = i;
-            id_data[i-min] = bytes32(id);
             earnings_data[i-min] = slot_to_earnings[id];
             price_data[i-min] = slot_to_price[id];
         }
-        return (index_data, id_data, earnings_data, price_data);
+        return (index_data, earnings_data, price_data);
+    }
+
+    function getTierData(uint256 price, uint8 tier) external view returns (uint256[] memory, uint256[] memory, uint256[] memory) {
+        require(tier > 1 && tier <= 2, "For tier1 call getTier1Data");
+        uint256[] memory index_data = new uint256[](10);
+        uint256[] memory earnings_data = new uint256[](10);
+        uint256[] memory price_data = new uint256[](10);
+
+        uint256 divider = tier==1 ? 100 : 10;
+
+        for(uint i = 0; i < 10; i++) {
+            uint256 tier_price = price.div(divider).mul(10) + i;
+            uint256 id = _getSlotId(tier_price,tier);
+            index_data[i] = tier_price;
+            earnings_data[i] = slot_to_earnings[id];
+            price_data[i] = slot_to_price[id];
+        }
+        return (index_data, earnings_data, price_data);
     }
 
     /**
