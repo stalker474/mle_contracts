@@ -101,6 +101,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     }
 
     function buySlots(uint256[] calldata prices, uint8[] calldata tiers) external payable
+    whenNotPaused()
     {
         require(prices.length == tiers.length,"Invalid input");
         require(prices.length <= 10, "Maximum 10 slots at a time");
@@ -112,6 +113,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     }
 
     function sellSlots(uint256[] calldata prices, uint8[] calldata tiers) external
+    whenNotPaused()
     {
         require(prices.length == tiers.length,"Invalid input");
         require(prices.length <= 10, "Maximum 10 slots at a time");
