@@ -42,7 +42,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     uint256 public config_rebuy_fee = 500000; //50%
     uint256 public config_resell_fee = 100000; //10%
     uint256 public config_hotness_modifier = 1500000;//150%
-    uint256 public config_spread = 150000; // 15%
+    uint256 public config_spread = 100000; // 10%
     uint256 public config_min_hotness_ratio = 300000; //30%
 
     /// @dev address to which send the house cut on withdrawal
@@ -280,16 +280,26 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         oraclize_setCustomGasPrice(config_gasprice);
     }
 
-    function getTier1Data() external view returns (uint256[] memory, uint256[] memory, uint256[] memory) {
+    function getMinMax() public view returns (uint256 _min, uint256 _max) {
         uint256 spread = config_spread / 2;
         uint256 tier_price = current_price / 100;
         uint256 max = tier_price.mul(PRECISION.add(spread)).div(PRECISION);
         uint256 min = tier_price.mul(PRECISION.sub(spread)).div(PRECISION);
-        uint256 size = max - min;
         
-        uint256[] memory index_data = new uint256[](size);
-        uint256[] memory earnings_data = new uint256[](size);
-        uint256[] memory price_data = new uint256[](size);
+        return (min, max);
+    }
+
+    function getTier1Data() external view returns (uint256[20] memory _index_data, uint256[20] memory _earnings_data, uint256[20] memory _price_data, uint256 _length) {
+        uint256 min;
+        uint256 max;
+        (min,max) = getMinMax();
+        uint256 length = max - min;
+
+        require(length <= 20, "This function cant handle a spread so big");
+        
+        uint256[20] memory index_data;
+        uint256[20] memory earnings_data;
+        uint256[20] memory price_data;
         
         for(uint i = min; i <= max; i++) {
             uint256 id = _getSlotId(i*100,0);
@@ -297,14 +307,14 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             earnings_data[i-min] = slot_to_earnings[id];
             price_data[i-min] = slot_to_price[id];
         }
-        return (index_data, earnings_data, price_data);
+        return (index_data, earnings_data, price_data, length);
     }
 
-    function getTierData(uint256 price, uint8 tier) external view returns (uint256[] memory, uint256[] memory, uint256[] memory) {
-        require(tier > 1 && tier <= 2, "For tier1 call getTier1Data");
-        uint256[] memory index_data = new uint256[](10);
-        uint256[] memory earnings_data = new uint256[](10);
-        uint256[] memory price_data = new uint256[](10);
+    function getTierData(uint256 price, uint8 tier) external view returns (uint256[10] memory _index_data, uint256[10] memory _earnings_data, uint256[10] memory _price_data) {
+        require(tier > 0 && tier <= 2, "For tier1 call getTier1Data");
+        uint256[10] memory index_data;
+        uint256[10] memory earnings_data;
+        uint256[10] memory price_data;
 
         uint256 divider = tier==1 ? 100 : 10;
 
