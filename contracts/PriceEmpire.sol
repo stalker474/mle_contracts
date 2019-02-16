@@ -34,9 +34,9 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     uint256 public config_tier2_payout = 500;  // 500/PRECISION
     uint256 public config_tier1_payout = 50;   // 50/PRECISION
 
-    uint256 public config_tier3_price = 0.02 ether;
-    uint256 public config_tier2_price = 0.2 ether;
-    uint256 public config_tier1_price = 2 ether;
+    uint256 public config_tier3_price = 0.002 ether;
+    uint256 public config_tier2_price = 0.02 ether;
+    uint256 public config_tier1_price = 0.2 ether;
 
     uint256 public config_rebuy_mult = 1750000; //175%
     uint256 public config_rebuy_fee = 500000; //50%
