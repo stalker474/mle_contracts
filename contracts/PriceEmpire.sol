@@ -22,13 +22,13 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     // config
 
     /// @dev gas limit for price callbacks
-    uint256 public config_gas_limit = 200000;
+    uint256 public config_gas_limit = 150000;
     /// @dev gas price for transactions
-    uint256 public config_gasprice = 20000000000 wei;
+    uint256 public config_gasprice = 15000000000 wei;
     /// @dev amount of gas to spend on oraclize update callback
-    uint256 public config_update_gas_limit = 300000;
+    uint256 public config_update_gas_limit = 260000;
     /// @dev time between start and end price for the price movement bet
-    uint256 public config_pricecheck_delay = 2 minutes;
+    uint256 public config_pricecheck_delay = 15 minutes;
 
     uint256 public config_tier3_payout = 5000; // 5000/PRECISION
     uint256 public config_tier2_payout = 500;  // 500/PRECISION
@@ -41,9 +41,8 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     uint256 public config_rebuy_mult = 1750000; //175%
     uint256 public config_rebuy_fee = 500000; //50%
     uint256 public config_resell_fee = 100000; //10%
-    uint256 public config_hotness_modifier = 1500000;//150%
+    uint256 public config_hotness_modifier = 1000000;//100%
     uint256 public config_spread = 100000; // 10%
-    uint256 public config_min_hotness_ratio = 300000; //30%
 
     /// @dev address to which send the house cut on withdrawal
     uint256 public config_house_cut = 50000; //5%
@@ -85,31 +84,20 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     Ownable() {
         latest_sample = block.timestamp;
         latest_blockheight = block.number;
-         oraclize_setCustomGasPrice(config_gasprice);
+        oraclize_setCustomGasPrice(config_gasprice);
     }
 
     function newSample() public
     whenNotPaused() {
         //prevent roll spamming by respecting a minimal cooldown period
         require(latest_sample + config_pricecheck_delay <= block.timestamp, "cooling down");
-        //compute oraclize fees
-        uint256 call_price = _checkPrice();
-
-        if(call_price > address(this).balance) {
-            //the caller didnt send enough for oraclize fees, just push an event and display the desired price
-            emit OraclizeError(call_price);
-        } else {
-            oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
-            bytes32 queryId = oraclize_query(config_pricecheck_delay, "nested", query_stringETH, config_gas_limit);
-            emit SamplingPriceStarted(queryId);
-
-            //remove proof for simple call schedule
-            oraclize_setProof(proofType_NONE);
-            queryId = oraclize_query(config_pricecheck_delay, "URL", "", config_update_gas_limit);
-            _rolling_query[queryId] = true;
-
-            pool = pool.sub(call_price);
-        }
+        uint256 balance = address(this).balance;
+        oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
+        oraclize_query(config_pricecheck_delay, "nested", query_stringETH, config_gas_limit);
+        //remove proof for simple call schedule
+        oraclize_setProof(proofType_NONE);
+        oraclize_query(config_pricecheck_delay, "URL", "", config_update_gas_limit);
+        pool = pool.sub(balance.sub(address(this).balance));
     }
 
     function buySlots(uint256[] calldata prices, uint8[] calldata tiers) external payable
@@ -192,13 +180,12 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
         for(uint8 i = 0; i < 3; i++) {
             uint256 slot_id_tier = _getSlotId(current_price, i);
-            uint256 tierPayout = _getSlotPayout(i);
-            uint256 payout = pool.mul(tierPayout).mul(elapsed_blocks).div(PRECISION);
+            uint256 payout = pool.mul(_getSlotPayout(i)).mul(elapsed_blocks).div(PRECISION);
             slot_to_earnings[slot_id_tier] = slot_to_earnings[slot_id_tier].add(payout);
 
             if (slot_to_owner[slot_id_tier] != address(0)) {
                 //this slot is owned by someone
-                require(pool >= payout,"Not enough funds to pay");
+                //require(pool >= payout,"Not enough funds to pay"); should be tested on next line anyway
                 pool = pool.sub(payout);
                 profitOf[slot_to_owner[slot_id_tier]] = profitOf[slot_to_owner[slot_id_tier]].add(payout);
                 if(!slot_to_owner[slot_id_tier].send(payout)) {
@@ -293,7 +280,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 min;
         uint256 max;
         (min,max) = getMinMax();
-        uint256 length = max - min;
+        uint256 length = max - min + 1;
 
         require(length <= 20, "This function cant handle a spread so big");
         
@@ -328,10 +315,10 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         return (index_data, earnings_data, price_data);
     }
 
-    /**
+        /**
         @dev returns current oraclize fees in Wei 
     */
-    function _checkPrice() internal returns (uint256) {
+    function checkPrice() external returns (uint256) {
          //TLSNotary proof for URLs
         oraclize_setProof(proofType_TLSNotary | proofStorage_IPFS);
         uint256 price = oraclize_getPrice("URL", config_gas_limit);
@@ -361,13 +348,14 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             uint256 absDelta = uint256(delta > 0? delta : -delta);
             require(absDelta.mul(PRECISION).div(current_price) <= config_spread / 2, "Cant buy this property yet");
 
-            uint256 hotnessRatio = PRECISION.sub(absDelta.mul(PRECISION).div(current_price)).div(config_spread);
-            //clamp hotness ratio
-            if(hotnessRatio < config_min_hotness_ratio) {
-                hotnessRatio = config_min_hotness_ratio;
+            uint256 hotnessRatio = absDelta.mul(PRECISION).div(current_price).div(config_spread);
+            
+            //clamp
+            if(hotnessRatio > PRECISION) {
+                hotnessRatio = PRECISION;
             }
-            uint256 hotnessModif = slot_price.mul(config_hotness_modifier).mul(hotnessRatio).div(PRECISION);
-            final_buy_price = slot_price.add(hotnessModif);
+            uint256 hotnessModifier = config_hotness_modifier.mul(PRECISION.sub(hotnessRatio));
+            final_buy_price = slot_price.add(slot_price.mul(hotnessModifier).div(PRECISION));
         } else {
             //this slot belongs to someone
             //apply buy majoration
@@ -379,7 +367,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             address payable original_owner = slot_to_owner[slot_id];
             from = original_owner;
 
-            if(resell_tickets[original_owner] > tickets) {
+            if(resell_tickets[original_owner] >= tickets) {
                 resell_tickets[original_owner] = resell_tickets[original_owner].sub(tickets);
             } else if(resell_tickets[original_owner] > 0) {
                 resell_tickets[original_owner] = 0;
