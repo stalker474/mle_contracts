@@ -329,6 +329,21 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         return price.add(oraclize_getPrice("URL", config_update_gas_limit));
     }
 
+    function getHotnessModifier(uint256 price) view public returns (uint256) {
+            //compute hot property modifier
+            int delta = int256(price) - int256(current_price);
+            uint256 absDelta = uint256(delta > 0? delta : -delta);
+            require(absDelta.mul(PRECISION).div(current_price) <= config_spread / 2, "Cant buy this property yet");
+
+            uint256 hotnessRatio = absDelta.mul(PRECISION).mul(PRECISION).div(current_price).div(config_spread/2);
+            
+            //clamp
+            if(hotnessRatio > PRECISION) {
+                hotnessRatio = PRECISION;
+            }
+            return config_hotness_modifier.mul(PRECISION.sub(hotnessRatio)).div(PRECISION);
+    }
+
     function _buySlot(uint256 price, uint8 tier) internal
     whenNotPaused() returns (uint256) {
         require(tier <= 2, "maximum 2 digits precision allowed");
@@ -336,27 +351,14 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         
        
         uint256 slot_id = _getSlotId(price, tier);
-       
         uint256 final_buy_price = 0;
-
         uint256 tickets = _getSlotResellTickets(tier);
         address from = address(0);
 
         if(slot_to_price[slot_id] == 0) {
             //this slot is available for purchase
             uint256 slot_price = _getSlotBasePrice(tier);
-            //compute hot property modifier
-            int delta = int256(price) - int256(current_price);
-            uint256 absDelta = uint256(delta > 0? delta : -delta);
-            require(absDelta.mul(PRECISION).div(current_price) <= config_spread / 2, "Cant buy this property yet");
-
-            uint256 hotnessRatio = absDelta.mul(PRECISION).div(current_price).div(config_spread);
-            
-            //clamp
-            if(hotnessRatio > PRECISION) {
-                hotnessRatio = PRECISION;
-            }
-            uint256 hotnessModifier = config_hotness_modifier.mul(PRECISION.sub(hotnessRatio));
+            uint256 hotnessModifier = getHotnessModifier(price);
             final_buy_price = slot_price.add(slot_price.mul(hotnessModifier).div(PRECISION));
         } else {
             //this slot belongs to someone
