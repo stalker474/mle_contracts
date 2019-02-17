@@ -121,7 +121,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 resell_fee = 0;
         uint256 total_properties_req = 0;
         for(uint8 i = 0; i < prices.length; i++) {
-            uint256 slot_id = _getSlotId(prices[i], tiers[i]);
+            uint256 slot_id = getSlotId(prices[i], tiers[i]);
             require(slot_to_owner[slot_id] == msg.sender,"Not all slots are yours");
             total_price = total_price.add(slot_to_price[slot_id]);
             resell_fee = slot_to_price[slot_id].mul(config_resell_fee).div(PRECISION);
@@ -181,7 +181,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         //pay winners
 
         for(uint8 i = 0; i < 3; i++) {
-            uint256 slot_id_tier = _getSlotId(current_price, i);
+            uint256 slot_id_tier = getSlotId(current_price, i);
             uint256 payout = pool.mul(_getSlotPayout(i)).mul(elapsed_blocks).div(PRECISION);
             slot_to_earnings[slot_id_tier] = slot_to_earnings[slot_id_tier].add(payout);
 
@@ -269,15 +269,6 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         oraclize_setCustomGasPrice(config_gasprice);
     }
 
-    function getMinMax() public view returns (uint256 _min, uint256 _max) {
-        uint256 spread = config_spread / 2;
-        uint256 tier_price = current_price / 100;
-        uint256 max = tier_price.mul(PRECISION.add(spread)).div(PRECISION);
-        uint256 min = tier_price.mul(PRECISION.sub(spread)).div(PRECISION);
-        
-        return (min, max);
-    }
-
     function getTier1Data() external view returns (uint256[20] memory _index_data, uint256[20] memory _earnings_data, uint256[20] memory _price_data, uint256 _length) {
         uint256 min;
         uint256 max;
@@ -291,7 +282,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256[20] memory price_data;
         
         for(uint i = min; i <= max; i++) {
-            uint256 id = _getSlotId(i*100,0);
+            uint256 id = getSlotId(i*100,0);
             index_data[i-min] = i;
             earnings_data[i-min] = slot_to_earnings[id];
             price_data[i-min] = slot_to_price[id];
@@ -309,7 +300,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
         for(uint i = 0; i < 10; i++) {
             uint256 tier_price = price.div(divider).mul(10) + i;
-            uint256 id = _getSlotId(tier_price,tier);
+            uint256 id = getSlotId(tier_price,tier);
             index_data[i] = tier_price;
             earnings_data[i] = slot_to_earnings[id];
             price_data[i] = slot_to_price[id];
@@ -329,6 +320,15 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         return price.add(oraclize_getPrice("URL", config_update_gas_limit));
     }
 
+    function getMinMax() public view returns (uint256 _min, uint256 _max) {
+        uint256 spread = config_spread / 2;
+        uint256 tier_price = current_price / 100;
+        uint256 max = tier_price.mul(PRECISION.add(spread)).div(PRECISION);
+        uint256 min = tier_price.mul(PRECISION.sub(spread)).div(PRECISION);
+        
+        return (min, max);
+    }
+
     function getHotnessModifier(uint256 price) view public returns (uint256) {
             //compute hot property modifier
             int delta = int256(price) - int256(current_price);
@@ -344,13 +344,24 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
             return config_hotness_modifier.mul(PRECISION.sub(hotnessRatio)).div(PRECISION);
     }
 
+    function getSlotId(uint256 price, uint8 tier) public pure returns (uint256) {
+        //trim the price based on tier to prevent multiple slots of same price being a city
+        //example a tier 0 must end with "00" and a tier 1 with "0"
+        if(tier == 0)
+            price = price.div(100).mul(100);
+        else if(tier == 1)
+            price = price.div(10).mul(10);
+
+        return uint256(keccak256(abi.encodePacked(price, tier)));
+    }
+
     function _buySlot(uint256 price, uint8 tier) internal
     whenNotPaused() returns (uint256) {
         require(tier <= 2, "maximum 2 digits precision allowed");
         require(current_price != 0,"Game hasnt started yet");
         
        
-        uint256 slot_id = _getSlotId(price, tier);
+        uint256 slot_id = getSlotId(price, tier);
         uint256 final_buy_price = 0;
         uint256 tickets = _getSlotResellTickets(tier);
         address from = address(0);
@@ -398,17 +409,6 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         emit SlotPurchased(price, tier, from, msg.sender);
 
         return final_buy_price;
-    }
-
-    function _getSlotId(uint256 price, uint8 tier) internal pure returns (uint256) {
-        //trim the price based on tier to prevent multiple slots of same price being a city
-        //example a tier 0 must end with "00" and a tier 1 with "0"
-        if(tier == 0)
-            price = price.div(100).mul(100);
-        else if(tier == 1)
-            price = price.div(10).mul(10);
-
-        return uint256(keccak256(abi.encodePacked(price, tier)));
     }
 
     function _getSlotBasePrice(uint8 tier) internal view returns (uint256) {
