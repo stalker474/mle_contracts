@@ -224,11 +224,11 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
     /**
         @dev Address of destination for the house edge
-        @param new_desination address to send eth to
+        @param new_destination address to send eth to
     */
-    function setCutDestination(address payable new_desination) external
+    function setCutDestination(address payable new_destination) external
     onlyOwner() {
-        config_cut_address = new_desination;
+        config_cut_address = new_destination;
     }
 
     /**
@@ -247,6 +247,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     function setPriceCheckDelay(uint256 new_delay) external
     onlyOwner() {
         require(new_delay < 60 days,"Oraclize delay is maximum 60 days");
+        require(new_delay >= 1 minutes,"Minimum is 1 minute");
         config_pricecheck_delay = new_delay;
     }
 
@@ -273,6 +274,8 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 min;
         uint256 max;
         (min,max) = getMinMax();
+        min = min / 100;
+        max = max / 100;
         uint256 length = max - min + 1;
 
         require(length <= 20, "This function cant handle a spread so big");
@@ -322,26 +325,23 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
 
     function getMinMax() public view returns (uint256 _min, uint256 _max) {
         uint256 spread = config_spread / 2;
-        uint256 tier_price = current_price / 100;
-        uint256 max = tier_price.mul(PRECISION.add(spread)).div(PRECISION);
-        uint256 min = tier_price.mul(PRECISION.sub(spread)).div(PRECISION);
-        
+        uint256 max = current_price.mul(PRECISION.add(spread)).div(PRECISION);
+        uint256 min = current_price.mul(PRECISION.sub(spread)).div(PRECISION);
         return (min, max);
     }
 
     function getHotnessModifier(uint256 price) view public returns (uint256) {
-            //compute hot property modifier
-            int delta = int256(price) - int256(current_price);
-            uint256 absDelta = uint256(delta > 0? delta : -delta);
-            require(absDelta.mul(PRECISION).div(current_price) <= config_spread / 2, "Cant buy this property yet");
+        //compute hot property modifier
+        uint256 min;
+        uint256 max;
+        (min,max) = getMinMax();
+        require(price >= min && price <= max, "Cant buy this property yet");
 
-            uint256 hotnessRatio = absDelta.mul(PRECISION).mul(PRECISION).div(current_price).div(config_spread/2);
-            
-            //clamp
-            if(hotnessRatio > PRECISION) {
-                hotnessRatio = PRECISION;
-            }
-            return config_hotness_modifier.mul(PRECISION.sub(hotnessRatio)).div(PRECISION);
+        uint256 med = (max - min) / 2;
+        int256 value = int256(price) - int256(min) - int256(med);
+        uint256 absValue = uint256(value < 0? -value : value);
+
+        return absValue.mul(PRECISION).div(med).mul(config_hotness_modifier).div(PRECISION);
     }
 
     function getSlotId(uint256 price, uint8 tier) public pure returns (uint256) {
