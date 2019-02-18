@@ -341,7 +341,13 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         int256 value = int256(price) - int256(min) - int256(med);
         uint256 absValue = uint256(value < 0? -value : value);
 
-        return absValue.mul(PRECISION).div(med).mul(config_hotness_modifier).div(PRECISION);
+        uint256 result = absValue.mul(PRECISION).div(med).mul(config_hotness_modifier).div(PRECISION);
+        //clamp
+        if(result > config_hotness_modifier) {
+            result = config_hotness_modifier;
+        }
+
+        return PRECISION.sub(result);
     }
 
     function getSlotId(uint256 price, uint8 tier) public pure returns (uint256) {
