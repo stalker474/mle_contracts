@@ -335,7 +335,6 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 min;
         uint256 max;
         (min,max) = getMinMax();
-        require(price >= min && price <= max, "Cant buy this property yet");
 
         uint256 med = (max - min) / 2;
         int256 value = int256(price) - int256(min) - int256(med);
@@ -371,6 +370,12 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
         uint256 final_buy_price = 0;
         uint256 tickets = _getSlotResellTickets(tier);
         address from = address(0);
+
+        //compute hot property modifier
+        uint256 min;
+        uint256 max;
+        (min,max) = getMinMax();
+        require(price >= min && price <= max, "Cant buy this property yet");
 
         if(slot_to_price[slot_id] == 0) {
             //this slot is available for purchase
