@@ -1,9 +1,9 @@
 [submodule "openzeppelin-solidity"]
 	path = openzeppelin-solidity
 	url = https://github.com/OpenZeppelin/openzeppelin-solidity
-[submodule "solidity-stringutils"]
-	path = solidity-stringutils
-	url = https://github.com/stalker474/solidity-stringutils
 [submodule "ethereum-api"]
 	path = ethereum-api
 	url = https://github.com/oraclize/ethereum-api
+[submodule "solidity-stringutils"]
+	path = solidity-stringutils
+	url = https://github.com/stalker474/solidity-stringutils
