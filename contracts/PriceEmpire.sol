@@ -49,7 +49,7 @@ contract PriceEmpire is usingOraclize, Pausable, Ownable {
     address payable config_cut_address = 0xA54741f7fE21689B59bD7eAcBf3A2947cd3f3BD4;
 
     /// @dev oraclize queries for ETH,BTC and LTC with encrypted api key for cryptocompare
-    string constant public query_stringETH = "[URL] json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD&extraParams=PriceRoll&sign=true&api_key=${[decrypt] BJEWo5a53APBrN4fYpz5xJaDzPmCLNjKdU+yMeD3p6VsMLkFRFfqIvRa+d4/qukTBbsFZqkvstMMcqoLZaShoh4HfH9XQUxL7cAtKwuAi8GCkFps0kcFmNB3EAQQvgGMX4Feaaoh40YCp5qBdKgXqLhX+BVu4x9p0uKS9XXB+Cc2qIlvagkG7y+To1bVrp1Xgg==}).USD";
+    string constant public query_stringETH = "[URL] json(https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD&extraParams=PriceEmpire&sign=true&api_key=${[decrypt] BPRjt+NlcV3x96mp4rfegZEDSZAUHeM4qryANee4qw8jcbELm2NoxTBUgNeUG7X3FZ9nn10+VLt/2qyse9l4BiyPdqfNE4GJvQ/Mq0qf3bdUrKXnPfXBdKDS6ejYYc9T87NvjjdUDiyB3nnYDI7XixUkxehQ5yXGcZG6cqzlFjCE2v0sUxt8dsv3dltU1t0/WA==}).USD";
   
     /// @dev used for cooldown between samples
     uint256 public latest_sample = 0;
